@@ -1,0 +1,26 @@
+services:
+  frontend:
+    container_name: fullstack-reference-project_frontend
+    image: fullstack-reference-project_frontend:latest
+    build:
+      context: ./frontend/
+      dockerfile: ./Dockerfile
+      target: base
+    volumes:
+      - ./frontend/http:/http
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+
+  backend:
+    container_name: fullstack-reference-project_backend
+    image: fullstack-reference-project_backend:latest
+    build:
+      context: ./backend/
+      dockerfile: ./Dockerfile
+      target: base
+    volumes:
+      - ./backend/http:/http
+    ports:
+      - "8080:8080"
