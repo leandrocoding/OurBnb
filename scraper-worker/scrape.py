@@ -2,6 +2,7 @@ import requests
 import json
 import re
 import base64
+import time
 from bs4 import BeautifulSoup
 from urllib.parse import quote
 
@@ -17,25 +18,27 @@ def build_airbnb_url(location, guests, checkin, checkout):
         "checkout": checkout,
         "adults": guests,
         "search_type": "search_query"
+        # "pagination_search": "true", # Only needed for page 2+
+        # "cursor": "..." # Only needed for page 2+
     }
     return url_path, params
 
 def parse_airbnb_response(html_content):
     soup = BeautifulSoup(html_content, 'html.parser')
     
-    # 1. Extract the JSON State
     script_tag = soup.find('script', {'id': 'data-deferred-state-0'})
     if not script_tag:
-        return {"error": "Could not find data state script tag."}
+        return {"error": "Could not find data state script tag."}, None
 
     try:
         data = json.loads(script_tag.text)
     except json.JSONDecodeError:
-        return {"error": "Failed to decode JSON data."}
+        return {"error": "Failed to decode JSON data."}, None
 
     listings = []
+    next_cursor = None
     
-    # 2. Navigate to results
+    # Navigate to results
     niobe_data = data.get('niobeClientData', [])
     search_results = []
     
@@ -43,34 +46,34 @@ def parse_airbnb_response(html_content):
         if len(item) > 1 and isinstance(item[1], dict) and 'data' in item[1]:
             presentation = item[1]['data'].get('presentation', {})
             stays_search = presentation.get('staysSearch', {})
+            
+            # 1. Get Listings
             results = stays_search.get('results', {})
             search_results = results.get('searchResults', [])
+            
+            # 2. Get Cursor for Next Page
+            pagination_info = results.get('paginationInfo', {})
+            next_cursor = pagination_info.get('nextPageCursor')
+            
             if search_results:
                 break
 
-    # 3. Parse each result
     for result in search_results:
         if result.get('__typename') != 'StaySearchResult':
             continue
 
-        # --- FIX: ID Extraction ---
-        # The ID is hidden inside 'demandStayListing' -> 'id'
-        # It looks like "RGVtYW5kU3RheUxpc3Rpbmc6MTU..." (Base64 encoded)
+        # ID Extraction with Base64 Decode
         encoded_id = result.get('demandStayListing', {}).get('id')
         listing_id = None
         
         if encoded_id:
             try:
-                # Decode base64 to get "DemandStayListing:1506252024..."
                 decoded_str = base64.b64decode(encoded_id).decode('utf-8')
-                # Extract just the number after the colon
                 listing_id = decoded_str.split(':')[-1]
             except:
-                # Fallback if not base64 or format differs
                 listing_id = encoded_id
 
         # Basic Info
-        # Name is localized in your HTML payload
         listing_title = result.get('nameLocalized', {}).get('localizedStringWithTranslationPreference')
         if not listing_title:
              listing_title = result.get('listing', {}).get('name')
@@ -79,12 +82,10 @@ def parse_airbnb_response(html_content):
         price_obj = result.get('structuredDisplayPrice', {}).get('primaryLine', {})
         price_text = price_obj.get('price', 'N/A')
         price_accessibility = price_obj.get('accessibilityLabel', '')
-# https://www.airbnb.ch/s/universit%C3%A4tsstrasse-Z%C3%BCrich/homes?refinement_paths%5B%5D=%2Fhomes&date_picker_type=calendar&checkin=2025-11-28&checkout=2025-11-30&adults=2&query=universit%C3%A4tsstrasse%20Z%C3%BCrich&place_id=EiVVbml2ZXJzaXTDpHRzdHJhc3NlLCBaw7xyaWNoLCBTY2h3ZWl6Ii4qLAoUChIJwWJdJqGgmkcRe-5Y9I6NcmUSFAoSCRmivkmXC5BHEQPcH-fxjW7m&flexible_trip_lengths%5B%5D=one_week&monthly_start_date=2025-12-01&monthly_length=3&monthly_end_date=2026-03-01&price_filter_input_type=2&price_filter_num_nights=2&channel=EXPLORE&federated_search_session_id=d5f70041-c686-4c7b-b54a-8453f22cf3b1&pagination_search=true&cursor=eyJzZWN0aW9uX29mZnNldCI6MCwiaXRlbXNfb2Zmc2V0IjoxOCwidmVyc2lvbiI6MX0%3D
-        # https://www.airbnb.ch/s/universit%C3%A4tsstrasse-Z%C3%BCrich/homes?refinement_paths%5B%5D=%2Fhomes&date_picker_type=calendar&checkin=2025-11-28&checkout=2025-11-30&adults=2&query=universit%C3%A4tsstrasse%20Z%C3%BCrich&place_id=EiVVbml2ZXJzaXTDpHRzdHJhc3NlLCBaw7xyaWNoLCBTY2h3ZWl6Ii4qLAoUChIJwWJdJqGgmkcRe-5Y9I6NcmUSFAoSCRmivkmXC5BHEQPcH-fxjW7m&flexible_trip_lengths%5B%5D=one_week&monthly_start_date=2025-12-01&monthly_length=3&monthly_end_date=2026-03-01&price_filter_input_type=2&price_filter_num_nights=2&channel=EXPLORE&pagination_search=true&cursor=eyJzZWN0aW9uX29mZnNldCI6MCwiaXRlbXNfb2Zmc2V0IjoxOCwidmVyc2lvbiI6MX0%3D 
-        # --- FIX: Price Integer Parsing ---
-        # Use regex to find the first sequence of digits, safer than split()[0]
+
+        # Price Integer
         price_int = 0
-        match = re.search(r'\d+', price_text) # Look at visual price "263 CHF"
+        match = re.search(r'\d+', price_text)
         if match:
             price_int = int(match.group())
 
@@ -95,9 +96,6 @@ def parse_airbnb_response(html_content):
         pictures = result.get('contextualPictures', [])
         image_urls = [pic.get('picture') for pic in pictures if pic.get('picture')]
 
-        # Badges
-        badges = [b.get('text') for b in result.get('badges', []) if b.get('text')]
-
         listings.append({
             "id": listing_id,
             "title": listing_title,
@@ -105,20 +103,19 @@ def parse_airbnb_response(html_content):
             "price_int": price_int,
             "total_price_details": price_accessibility,
             "rating": rating,
-            "badges": badges,
             "images": image_urls,
             "url": f"https://www.airbnb.ch/rooms/{listing_id}" if listing_id else None
         })
 
-    return listings
+    return listings, next_cursor
 
-def scrape_airbnb(location, guests, checkin, checkout):
-    url, params = build_airbnb_url(location, guests, checkin, checkout)
+def scrape_airbnb(location, guests, checkin, checkout, max_pages=2):
+    url_path, params = build_airbnb_url(location, guests, checkin, checkout)
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "de-CH,de;q=0.9,en-US;q=0.8,en;q=0.7", # Matched to .ch domain
+        "Accept-Language": "de-CH,de;q=0.9,en-US;q=0.8,en;q=0.7",
         "Sec-GPC": "1",
         "Upgrade-Insecure-Requests": "1",
         "Sec-Fetch-Dest": "document",
@@ -128,23 +125,63 @@ def scrape_airbnb(location, guests, checkin, checkout):
         "Priority": "u=0, i"
     }
 
-    print(f"Fetching: {url} with params {params}")
+    all_listings = []
+    current_cursor = None
     
-    try:
-        response = requests.get(url, params=params, headers=headers)
-        response.raise_for_status()
+    for page in range(1, max_pages + 1):
+        print(f"--- Scraping Page {page} ---")
         
-        data = parse_airbnb_response(response.text)
-        return json.dumps(data, indent=4, ensure_ascii=False)
+        # Prepare params for pagination
+        current_params = params.copy()
+        if current_cursor:
+            current_params['pagination_search'] = 'true'
+            current_params['cursor'] = current_cursor
+            
+        try:
+            response = requests.get(url_path, params=current_params, headers=headers)
+            print(response.url)
+            with open("testout.html", "w", encoding="utf-8") as f:
 
-    except requests.exceptions.RequestException as e:
-        return json.dumps({"error": str(e)})
+                f.write(response.text)
+            response.raise_for_status()
+            
+            listings, next_cursor = parse_airbnb_response(response.text)
+            
+            if isinstance(listings, dict) and "error" in listings:
+                print(f"Error on page {page}: {listings['error']}")
+                break
+                
+            all_listings.extend(listings)
+            print(f"Found {len(listings)} listings on page {page}.")
+            
+            # Logic to stop or continue
+            if not next_cursor:
+                print("No more pages available.")
+                break
+                
+            current_cursor = next_cursor
+            
+            # Important: Sleep to behave like a browser and avoid blocking
+            if page < max_pages:
+                time.sleep(2) 
+
+        except requests.exceptions.RequestException as e:
+            print(f"Request error on page {page}: {e}")
+            break
+
+    return json.dumps(all_listings, indent=4, ensure_ascii=False)
 
 if __name__ == "__main__":
-    loc = "Madrid"
+    loc = "Berlin"
     ppl = 2
     in_date = "2025-11-28"
     out_date = "2025-11-30"
 
-    result_json = scrape_airbnb(loc, ppl, in_date, out_date)
+    result_json = scrape_airbnb(loc, ppl, in_date, out_date, max_pages=1)
+    
+    # Optional: Write to file to inspect easier
+    with open("airbnb_results.json", "w", encoding="utf-8") as f:
+        f.write(result_json)
     print(result_json)
+        
+    print("Scraping complete. Results saved to airbnb_results.json")
