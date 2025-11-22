@@ -8,8 +8,19 @@ from urllib.parse import quote
 
 def build_airbnb_url(location, guests, checkin, checkout):
     base_url = "https://www.airbnb.ch/s"
-    safe_location = quote(location)
-    url_path = f"{base_url}/{safe_location}/homes"
+    url_path = f"{base_url}/homes"
+    # TODO: Fix üöä etc. Currently not working e.g. Zürich
+    # TODO: This is a bad fix that might work for now. 
+
+    replacements = {
+        'ä': 'a', 'Ä': 'A',
+        'ö': 'o', 'Ö': 'O',
+        'ü': 'u', 'Ü': 'U',
+        'ß': 'ss'
+    }
+    sanitized_location = location
+    for char, replacement in replacements.items():
+        sanitized_location = sanitized_location.replace(char, replacement)
     
     params = {
         "refinement_paths[]": "/homes",
@@ -17,7 +28,8 @@ def build_airbnb_url(location, guests, checkin, checkout):
         "checkin": checkin,
         "checkout": checkout,
         "adults": guests,
-        "search_type": "search_query"
+        "search_type": "search_query",
+        "query": sanitized_location,
         # "pagination_search": "true", # Only needed for page 2+
         # "cursor": "..." # Only needed for page 2+
     }
@@ -84,11 +96,7 @@ def parse_airbnb_response(html_content):
         price_accessibility = price_obj.get('accessibilityLabel', '')
 
         # Price Integer
-        price_int = 0
-        match = re.search(r'\d+', price_text)
-        if match:
-            price_int = int(match.group())
-
+        price_int = int(price_accessibility.split()[0])
         # Rating
         rating = result.get('avgRatingLocalized', 'N/A')
 
@@ -172,7 +180,7 @@ def scrape_airbnb(location, guests, checkin, checkout, max_pages=2):
     return json.dumps(all_listings, indent=4, ensure_ascii=False)
 
 if __name__ == "__main__":
-    loc = "Berlin"
+    loc = "Zürich"
     ppl = 2
     in_date = "2025-11-28"
     out_date = "2025-11-30"
