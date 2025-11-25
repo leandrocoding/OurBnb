@@ -40,7 +40,9 @@ def parse_airbnb_response(html_content):
     
     script_tag = soup.find('script', {'id': 'data-deferred-state-0'})
     if not script_tag:
-        return {"error": "Could not find data state script tag."}, None
+        with open("script_not_found.html", "w") as f:
+            f.write(html_content)
+        return {"error": "Could not find data state script tag (data-deferred-state-0)., see script_not_found.html"}, None
 
     try:
         data = json.loads(script_tag.text)
@@ -116,8 +118,8 @@ def parse_airbnb_response(html_content):
         })
 
     return listings, next_cursor
-
-def scrape_airbnb(location, guests, checkin, checkout, max_pages=2):
+# TODO add support for additional search params
+def search_airbnb(location, guests, checkin, checkout, max_pages=2):
     url_path, params = build_airbnb_url(location, guests, checkin, checkout)
     
     headers = {
@@ -185,7 +187,7 @@ if __name__ == "__main__":
     in_date = "2025-11-28"
     out_date = "2025-11-30"
 
-    result_json = scrape_airbnb(loc, ppl, in_date, out_date, max_pages=1)
+    result_json = search_airbnb(loc, ppl, in_date, out_date, max_pages=1)
     
     # Optional: Write to file to inspect easier
     with open("airbnb_results.json", "w", encoding="utf-8") as f:

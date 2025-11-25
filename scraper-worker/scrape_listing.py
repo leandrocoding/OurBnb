@@ -2,7 +2,7 @@ import requests
 from bs4 import BeautifulSoup
 import json
 
-def extract_clean_listing_data(room_id):
+def get_listing_data(room_id):
     url = f"https://www.airbnb.ch/rooms/{room_id}"
     
     # headers are critical to avoid bot detection
@@ -147,11 +147,13 @@ def parse_pdp_sections(pdp_data):
 
     return clean_data
 
-# --- EXECUTION ---
-room_id = "1289024964833416671"
-result = extract_clean_listing_data(room_id)
+if __name__ == "__main__":
 
-result_json = json.dumps(result, indent=2, ensure_ascii=False)
-with open("airbnb_results_listing.json", "w", encoding="utf-8") as f:
-        f.write(result_json)
-# print()
+# --- EXECUTION ---
+    room_id = "1289024964833416671"
+    result = get_listing_data(room_id)
+
+    result_json = json.dumps(result, indent=2, ensure_ascii=False)
+    with open("airbnb_results_listing.json", "w", encoding="utf-8") as f:
+            f.write(result_json)
+    # print()
