@@ -32,7 +32,7 @@ class RoomType(Enum):
     ENTIRE_HOME = "Entire home/apt"
     PRIVATE_ROOM = "Private room"
 
-def build_airbnb_url(location, guests, checkin, checkout, price_min=None, price_max=None, amenities=None, room_type=None):
+def build_airbnb_url(location, guests, checkin, checkout, price_min=None, price_max=None, amenities=None, room_type=None, min_bedrooms=None, min_beds=None, min_bathrooms=None):
     base_url = "https://www.airbnb.ch/s"
     url_path = f"{base_url}/homes"
     # TODO: Fix üöä etc. Currently not working e.g. Zürich
@@ -108,6 +108,21 @@ def build_airbnb_url(location, guests, checkin, checkout, price_min=None, price_
         room_type_value = room_type.value if isinstance(room_type, Enum) else room_type
         params["room_types[]"] = room_type_value
         selected_filter_order.append(f"room_types:{room_type_value}")
+
+    if min_bedrooms is not None:
+        has_filters = True
+        params["min_bedrooms"] = str(min_bedrooms)
+        selected_filter_order.append(f"min_bedrooms:{min_bedrooms}")
+
+    if min_beds is not None:
+        has_filters = True
+        params["min_beds"] = str(min_beds)
+        selected_filter_order.append(f"min_beds:{min_beds}")
+
+    if min_bathrooms is not None:
+        has_filters = True
+        params["min_bathrooms"] = str(min_bathrooms)
+        selected_filter_order.append(f"min_bathrooms:{min_bathrooms}")
 
     if has_filters:
         params["search_type"] = "filter_change"
@@ -210,8 +225,8 @@ def parse_airbnb_response(html_content):
 
     return listings, next_cursor
 # TODO add support for additional search params
-def search_airbnb(location, guests, checkin, checkout, min_price=None, max_price=None, min_bathrooms=None, amenities=None, room_type=None, max_pages=2):
-    url_path, params = build_airbnb_url(location, guests, checkin, checkout, price_min=min_price, price_max=max_price, amenities=amenities, room_type=room_type)
+def search_airbnb(location, guests, checkin, checkout, min_price=None, max_price=None, amenities=None, room_type=None, min_bedrooms=None, min_beds=None, min_bathrooms=None, max_pages=2):
+    url_path, params = build_airbnb_url(location, guests, checkin, checkout, price_min=min_price, price_max=max_price, amenities=amenities, room_type=room_type, min_bedrooms=min_bedrooms, min_beds=min_beds, min_bathrooms=min_bathrooms)
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0",
@@ -285,6 +300,8 @@ if __name__ == "__main__":
         max_price=500, 
         amenities=[Amenities.WIFI, Amenities.KITCHEN], 
         room_type=RoomType.ENTIRE_HOME,
+        min_bedrooms=2,
+        min_bathrooms=1,
         max_pages=1
     )
 
