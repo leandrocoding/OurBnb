@@ -1,0 +1,212 @@
+"use client";
+
+import { useState } from 'react';
+import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
+import { Listing, VoteType } from '../types';
+import { X, ThumbsUp, Heart, Star, ChevronLeft, ChevronRight, MapPin } from 'lucide-react';
+import Image from 'next/image';
+
+interface VotingCardProps {
+  listing: Listing;
+  onVote: (type: VoteType) => void;
+  otherVotes?: { name: string; type: VoteType }[];
+  location?: string;
+  isBackground?: boolean;
+}
+
+export function VotingCard({ listing, onVote, otherVotes = [], location, isBackground = false }: VotingCardProps) {
+  const [imageIndex, setImageIndex] = useState(0);
+  const x = useMotionValue(0);
+  const rotate = useTransform(x, [-200, 200], [-10, 10]);
+  const opacity = useTransform(x, [-200, -150, 0, 150, 200], [0, 1, 1, 1, 0]);
+  
+  // Visual feedback opacities
+  const nopeOpacity = useTransform(x, [-150, -20], [1, 0]);
+  const likeOpacity = useTransform(x, [20, 150], [0, 1]);
+
+  // Derived likes/loves
+  const likers = otherVotes.filter(v => v.type === 'ok' || v.type === 'love');
+
+  const nextImage = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (imageIndex < listing.images.length - 1) setImageIndex(prev => prev + 1);
+  };
+
+  const prevImage = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (imageIndex > 0) setImageIndex(prev => prev - 1);
+  };
+
+  if (isBackground) {
+    return (
+      <div className="absolute top-0 left-0 w-full h-full scale-[0.95] translate-y-4 opacity-50 bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col pointer-events-none z-0">
+        <div className="relative h-3/5 w-full bg-slate-200">
+           {listing.images[0] && (
+             <Image 
+                src={listing.images[0]} 
+                alt={listing.title}
+                fill
+                className="object-cover"
+             />
+           )}
+           <div className="absolute bottom-0 left-0 w-full h-24 bg-gradient-to-t from-black/60 to-transparent" />
+           <div className="absolute bottom-4 left-4 text-white">
+               <h2 className="text-2xl font-bold leading-tight drop-shadow-md">{listing.title}</h2>
+           </div>
+        </div>
+        <div className="p-5 flex flex-col flex-1">
+            <div className="flex justify-between items-end mb-2">
+                 <div className="h-8 bg-slate-100 rounded w-24"></div>
+            </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <motion.div
+      style={{ x, rotate, opacity }}
+      drag="x"
+      dragConstraints={{ left: 0, right: 0 }}
+      onDragEnd={(e, { offset, velocity }) => {
+        if (offset.x > 100) onVote('ok');
+        else if (offset.x < -100) onVote('veto');
+      }}
+      className="absolute top-0 left-0 w-full h-full bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col z-10"
+    >
+      {/* Header / Liked by */}
+      {likers.length > 0 && (
+        <div className="absolute top-4 left-4 z-20 bg-white/90 backdrop-blur px-3 py-1.5 rounded-full flex items-center gap-2 shadow-sm text-sm font-medium text-slate-700">
+           <div className="flex -space-x-2">
+              {likers.slice(0, 3).map((l, i) => (
+                  <div key={i} className="w-6 h-6 rounded-full bg-blue-500 border-2 border-white flex items-center justify-center text-[10px] text-white">
+                      {l.name[0]}
+                  </div>
+              ))}
+           </div>
+           <span>Liked by {likers[0].name} {likers.length > 1 ? `& ${likers.length - 1} others` : ''}</span>
+        </div>
+      )}
+      
+      {/* Drag Feedback Overlays */}
+      <motion.div style={{ opacity: likeOpacity }} className="absolute top-8 right-8 z-30 pointer-events-none transform rotate-12">
+          <div className="border-4 border-green-500 text-green-500 font-bold text-4xl px-4 py-2 rounded-lg bg-white/20 backdrop-blur-sm uppercase tracking-wider">
+              LIKE
+          </div>
+      </motion.div>
+      <motion.div style={{ opacity: nopeOpacity }} className="absolute top-8 left-8 z-30 pointer-events-none transform -rotate-12">
+          <div className="border-4 border-red-500 text-red-500 font-bold text-4xl px-4 py-2 rounded-lg bg-white/20 backdrop-blur-sm uppercase tracking-wider">
+              NOPE
+          </div>
+      </motion.div>
+
+      {/* Image Carousel */}
+      <div className="relative h-3/5 w-full bg-slate-200 group">
+        <AnimatePresence mode='wait'>
+            <motion.div 
+                key={imageIndex}
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="relative w-full h-full"
+            >
+                {listing.images[imageIndex] && (
+                    <Image 
+                        src={listing.images[imageIndex]} 
+                        alt={`${listing.title} image ${imageIndex + 1}`}
+                        fill
+                        className="object-cover"
+                        priority={true}
+                    />
+                )}
+            </motion.div>
+        </AnimatePresence>
+        
+        {/* Navigation Overlays */}
+        {listing.images.length > 1 && (
+            <>
+                <div 
+                    className="absolute inset-y-0 left-0 w-1/4 z-10 cursor-pointer flex items-center justify-start pl-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={prevImage}
+                >
+                    {imageIndex > 0 && <div className="p-1 bg-black/30 rounded-full text-white"><ChevronLeft className="w-6 h-6" /></div>}
+                </div>
+                <div 
+                    className="absolute inset-y-0 right-0 w-1/4 z-10 cursor-pointer flex items-center justify-end pr-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={nextImage}
+                >
+                    {imageIndex < listing.images.length - 1 && <div className="p-1 bg-black/30 rounded-full text-white"><ChevronRight className="w-6 h-6" /></div>}
+                </div>
+                
+                {/* Dots */}
+                <div className="absolute bottom-24 left-0 w-full flex justify-center gap-1.5 z-20">
+                    {listing.images.map((_, i) => (
+                        <div 
+                            key={i} 
+                            className={`w-1.5 h-1.5 rounded-full shadow-sm transition-colors ${i === imageIndex ? 'bg-white' : 'bg-white/40'}`} 
+                        />
+                    ))}
+                </div>
+            </>
+        )}
+
+        <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black/80 via-black/40 to-transparent pointer-events-none" />
+        
+        {/* Title and Location Overlay */}
+        <div className="absolute bottom-4 left-4 right-4 text-white z-20 pointer-events-none">
+            <h2 className="text-2xl font-bold leading-tight drop-shadow-md mb-1">{listing.title}</h2>
+            {location && (
+                <div className="flex items-center gap-1 text-white/90 text-sm font-medium">
+                    <MapPin className="w-4 h-4" />
+                    {location}
+                </div>
+            )}
+        </div>
+      </div>
+
+      {/* Details */}
+      <div className="p-5 flex flex-col flex-1">
+        <div className="flex justify-between items-end mb-2">
+            <div>
+                <div className="text-3xl font-bold text-slate-900">{listing.price}</div>
+            </div>
+            <div className="flex items-center gap-1 text-slate-700 font-bold text-lg">
+                <Star className="w-5 h-5 fill-yellow-400 text-yellow-400" />
+                {listing.rating}
+            </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 mt-2 mb-4">
+            {listing.amenities.includes(4) && <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">Wifi</span>}
+            {listing.amenities.includes(7) && <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">Pool</span>}
+            <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">{listing.bedrooms} Bed</span>
+             <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">{listing.bathrooms} Bath</span>
+        </div>
+
+        <div className="mt-auto flex items-center justify-center gap-6 pt-2">
+             <button 
+                onClick={() => onVote('veto')}
+                className="w-14 h-14 rounded-full bg-white border border-slate-200 shadow-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+             >
+                 <X className="w-6 h-6" />
+             </button>
+
+             <button 
+                onClick={() => onVote('ok')}
+                className="w-14 h-14 rounded-full bg-white border border-slate-200 shadow-lg flex items-center justify-center text-yellow-500 hover:bg-yellow-50 transition-colors"
+             >
+                 <ThumbsUp className="w-6 h-6" />
+             </button>
+
+             <button 
+                onClick={() => onVote('love')}
+                className="w-16 h-16 rounded-full bg-rose-500 shadow-xl shadow-rose-500/30 flex items-center justify-center text-white hover:bg-rose-600 transition-colors"
+             >
+                 <Heart className="w-8 h-8 fill-current" />
+             </button>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
