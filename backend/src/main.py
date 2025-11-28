@@ -4,9 +4,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware import Middleware
 
-from routes.dummy import router as dummy_router
+from routes.api import router as api_router
 
-origins = os.getenv("CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000").split(",")
+origins = os.getenv("CORS_ORIGINS", "http://localhost,http://localhost:3000,http://127.0.0.1:3000,http://localhost:80").split(",")
 
 cors_middleware = Middleware(
     CORSMiddleware,
@@ -19,10 +19,10 @@ cors_middleware = Middleware(
 app = FastAPI(
     title="FWE'25 Backend API",
     version="1.0.0",
-    middleware=[cors_middleware]
+    middleware=[cors_middleware],
 )
 
-app.include_router(dummy_router)
+app.include_router(api_router)
 
 
 @app.get("/health", tags=["Monitoring"])
