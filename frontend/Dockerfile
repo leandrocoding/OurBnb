@@ -1,15 +1,31 @@
-FROM node:25-alpine
+FROM node:25-alpine AS base
 
 # Set working directory
 WORKDIR /usr/src/app
 
+# Copy package files
+COPY ./nextjs/package.json ./nextjs/yarn.lock ./nextjs/.yarnrc.yml ./
+
+# Install dependencies
+RUN yarn install
+
 # Copy app source
 COPY ./nextjs /usr/src/app
 
-# Install dependencies and build the app
-RUN yarn install
+# Expose port
+EXPOSE 3000
+
+# Default development command
+CMD ["yarn", "dev"]
+
+
+FROM base AS production
+
+# Build the app
 RUN yarn run build
+
+# Clean cache
 RUN yarn cache clean
 
-# Set startup command
+# Start production server
 CMD ["yarn", "start"]

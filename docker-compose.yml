@@ -8,6 +8,8 @@ services:
       target: base
     volumes:
       - ./frontend/http:/http
+      - ./frontend/nextjs:/usr/src/app
+      - /usr/src/app/node_modules
     ports:
       - "3000:3000"
     depends_on:
