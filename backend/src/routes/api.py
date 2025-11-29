@@ -41,6 +41,7 @@ from models.schemas import (
     UserVoteProgress,
     GroupStatsResponse,
     # Voting Queue
+    NextToVoteResponse,
     QueuedListing,
     VotingQueueResponse,
     VoteProgressResponse,
@@ -1101,9 +1102,16 @@ async def get_group_stats(group_id: int):
 # VOTING QUEUE ENDPOINTS
 # =============================================================================
 
-@router.get("/user/{user_id}/queue", response_model=VotingQueueResponse, tags=["Voting"])
+@router.get("/user/{user_id}/nextToVote", response_model=NextToVoteResponse, tags=["Voting"])
+async def get_user_next_to_vote(user_id: int, exclude_bnb: int = Query(default=None)):
+    """Returns the next airbnb to vote on except exclude_bnb """
+    # TODO Implement this
+    return NextToVoteResponse()
+
+# Legacy, prefere nexttovote
+@router.get("/user/{user_id}/queue", response_model=VotingQueueResponse, tags=["Voting"], deprecated=True)
 async def get_user_voting_queue(user_id: int, limit: int = Query(default=10, le=50)):
-    """Get unvoted listings for a user (their voting queue)."""
+    """Get unvoted listings for a user (their voting queue). Prefere nextToVote"""
     with get_cursor() as cursor:
         cursor.execute("SELECT id, group_id FROM users WHERE id = %s", (user_id,))
         user = cursor.fetchone()
@@ -1475,31 +1483,6 @@ async def get_search_status(group_id: int):
     )
 
 
-@router.get("/destinations/autocomplete", response_model=DestinationAutocompleteResponse, tags=["Destinations"])
-async def autocomplete_destinations(q: str = Query(..., min_length=2)):
-    """Autocomplete destination names based on previously used destinations."""
-    with get_cursor() as cursor:
-        # Search in existing destinations (simple approach)
-        # In production, you might use a dedicated geocoding API
-        cursor.execute(
-            """
-            SELECT DISTINCT location_name
-            FROM destinations
-            WHERE location_name ILIKE %s
-            ORDER BY location_name
-            LIMIT 10
-            """,
-            (f"%{q}%",),
-        )
-        results = cursor.fetchall()
-    
-    return DestinationAutocompleteResponse(
-        query=q,
-        suggestions=[
-            DestinationSuggestion(name=r["location_name"])
-            for r in results
-        ],
-    )
 
 
 @router.websocket("/ws/leaderboard/{group_id}")

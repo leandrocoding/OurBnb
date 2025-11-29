@@ -140,6 +140,22 @@ class GroupVotesResponse(BaseModel):
     votes: List[GroupVote]
 
 
+class NextToVoteResponse(BaseModel):
+    airbnb_id: str
+    title: str
+    price: int
+    rating: Optional[float] = None
+    review_count: Optional[int] = None
+    images: List[str]
+    bedrooms: Optional[int] = None
+    beds: Optional[int] = None
+    bathrooms: Optional[int] = None
+    property_type: Optional[str] = None
+    amenities: List[int] = []
+    # Other users' votes on this listing
+    other_votes: List[GroupVote] = []
+
+
 # Leaderboard schemas
 class LeaderboardVoteSummary(BaseModel):
     """Summary of votes for a listing"""
