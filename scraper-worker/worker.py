@@ -11,11 +11,12 @@ from scrape import search_airbnb, Amenities, RoomType
 from scrape_listing import get_listing_data
 from db import (
     get_user_filter,
+    get_filter_amenities,
     get_destination,
     update_filter_request_progress,
-    insert_property,
-    add_property_to_group_candidates,
-    get_group_id_for_destination,
+    insert_bnb,
+    insert_bnb_images,
+    insert_bnb_amenities,
 )
 
 # Redis configuration from environment
@@ -29,7 +30,7 @@ app = Celery("airbnb_workers", broker=REDIS_URL)
 def parse_rating(rating_str: str) -> tuple:
     """Parse rating string like '4.85 (123)' into (rating, review_count)."""
     if not rating_str or rating_str == "N/A":
-        return None, None
+        return None, 0
     
     # Try to extract rating and review count
     match = re.match(r"([\d.]+)\s*\((\d+)\)?", str(rating_str))
@@ -38,9 +39,9 @@ def parse_rating(rating_str: str) -> tuple:
     
     # Try just the rating
     try:
-        return float(rating_str), None
+        return float(rating_str), 0
     except (ValueError, TypeError):
-        return None, None
+        return None, 0
 
 
 @app.task(name='scraper.search_job') 
@@ -65,19 +66,22 @@ def search_worker(args: Dict[str, Any]):
     
     # Get filter from database
     user_filter = get_user_filter(user_id)
+    filter_amenities = get_filter_amenities(user_id)
     
-    # Get destination info from database  
+    # Get destination info from database (includes group_id)
     destination = get_destination(destination_id)
     if not destination:
         print(f"Destination {destination_id} not found")
         return "Failed: destination not found"
     
     location = destination.get("location_name")
+    group_id = destination.get("group_id")
+    
     # Calculate total guests
     guests = (
         destination.get("adults", 0) + 
         destination.get("teens", 0) + 
-        destination.get("child", 0)
+        destination.get("children", 0)
     )
     checkin = str(destination.get("date_range_start"))
     checkout = str(destination.get("date_range_end"))
@@ -86,8 +90,9 @@ def search_worker(args: Dict[str, Any]):
         print(f"Missing required destination data: {destination}")
         return "Failed: incomplete destination data"
     
-    # Get group ID for adding candidates
-    group_id = get_group_id_for_destination(destination_id)
+    if not group_id:
+        print(f"No group_id for destination {destination_id}")
+        return "Failed: no group_id"
     
     # Map room_type string to enum if present
     room_type = None
@@ -126,19 +131,19 @@ def search_worker(args: Dict[str, Any]):
         print("Failed to parse search results")
         return "Failed: could not parse results"
     
-    properties_inserted = 0
+    bnbs_inserted = 0
     for listing in listings:
         rating, review_count = parse_rating(listing.get("rating"))
         
-        # Prepare property data
-        # Since this property was returned from a filtered search, 
-        # we can assume it meets the filter criteria
-        property_data = {
+        # Prepare bnb data - now includes group_id and destination_id
+        bnb_data = {
             "airbnb_id": listing.get("id"),
+            "group_id": group_id,
+            "destination_id": destination_id,
             "title": listing.get("title"),
-            "price_per_night": listing.get("price_int"),
+            "price_per_night": listing.get("price_int", 0),
             "rating": rating,
-            "review_count": review_count,
+            "review_count": review_count or 0,
             "main_image_url": listing.get("images", [None])[0] if listing.get("images") else None,
             # Set filter-based constraints since property matched the search
             "min_bedrooms": user_filter.get("min_bedrooms"),
@@ -148,23 +153,28 @@ def search_worker(args: Dict[str, Any]):
         }
         
         try:
-            airbnb_id = insert_property(property_data)
+            airbnb_id = insert_bnb(bnb_data)
             
-            # Add to group candidates if we have a group
-            if group_id:
-                add_property_to_group_candidates(group_id, airbnb_id)
+            # Insert additional images (skip first one as it's main_image_url)
+            extra_images = listing.get("images", [])[1:]
+            if extra_images:
+                insert_bnb_images(airbnb_id, extra_images)
             
-            properties_inserted += 1
+            # Insert filter amenities (since the search matched, the bnb must have these)
+            if filter_amenities:
+                insert_bnb_amenities(airbnb_id, filter_amenities)
+            
+            bnbs_inserted += 1
         except Exception as e:
-            print(f"Failed to insert property {listing.get('id')}: {e}")
+            print(f"Failed to insert bnb {listing.get('id')}: {e}")
     
     # Update progress - all pages fetched
     update_filter_request_progress(user_id, destination_id, max_pages)
     
-    print(f"Inserted {properties_inserted} properties for destination {location}")
+    print(f"Inserted {bnbs_inserted} bnbs for destination {location}")
     
     time.sleep(randint(1, 4))
-    return f"Done: inserted {properties_inserted} properties"
+    return f"Done: inserted {bnbs_inserted} bnbs"
 
 
 @app.task(name='scraper.listing_job')
