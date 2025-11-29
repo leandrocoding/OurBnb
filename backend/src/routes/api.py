@@ -58,7 +58,7 @@ from models.schemas import (
 from db import get_cursor
 from scrape_utils import trigger_search_for_user_destinations, trigger_search_job, trigger_listing_inquiry
 
-router = APIRouter(prefix="/api", tags=["API"])
+router = APIRouter(prefix="/api")
 
 
 # =============================================================================
@@ -217,12 +217,8 @@ async def notify_leaderboard_update(group_id: int):
 # HTTP ENDPOINTS
 # =============================================================================
 
-@router.get("/test-data", response_model=TestData)
-async def test_data():
-    return TestData(some_text="Hello World!", random_number="42")
 
-
-@router.post("/group/create", response_model=CreateGroupResponse)
+@router.post("/group/create", response_model=CreateGroupResponse, tags=["Groups"])
 async def create_group(request: CreateGroupRequest):
     """Create a new group and return the group ID."""
     with get_cursor() as cursor:
@@ -259,7 +255,7 @@ async def create_group(request: CreateGroupRequest):
     return CreateGroupResponse(group_id=group_id)
 
 
-@router.get("/group/info/{group_id}", response_model=GroupInfoResponse)
+@router.get("/group/info/{group_id}", response_model=GroupInfoResponse, tags=["Groups"])
 async def get_group_info(group_id: int):
     """Get group information by group ID."""
     with get_cursor() as cursor:
@@ -312,7 +308,7 @@ async def get_group_info(group_id: int):
     )
 
 
-@router.post("/group/join", response_model=JoinGroupResponse)
+@router.post("/group/join", response_model=JoinGroupResponse, tags=["Groups"])
 async def join_group(request: JoinGroupRequest):
     """Join a group and return the user ID."""
     with get_cursor() as cursor:
@@ -350,7 +346,7 @@ async def join_group(request: JoinGroupRequest):
     return JoinGroupResponse(user_id=user_id)
 
 
-@router.get("/filter/{u_id}", response_model=FilterResponse)
+@router.get("/filter/{u_id}", response_model=FilterResponse, tags=["Filters"])
 async def get_filter(u_id: int):
     """Get user filter by user ID. Returns default values if no filter exists."""
     with get_cursor() as cursor:
@@ -389,7 +385,7 @@ async def get_filter(u_id: int):
         return FilterResponse(user_id=u_id, max_price=1000)
 
 
-@router.patch("/filter/{u_id}", response_model=FilterResponse)
+@router.patch("/filter/{u_id}", response_model=FilterResponse, tags=["Filters"])
 async def set_filter(u_id: int, filter_data: UserFilter):
     """Set or update user filter."""
     with get_cursor() as cursor:
@@ -475,7 +471,7 @@ async def set_filter(u_id: int, filter_data: UserFilter):
 
 
 
-@router.get("/group/{group_id}/listings", response_model=GroupListingsResponse)
+@router.get("/group/{group_id}/listings", response_model=GroupListingsResponse, tags=["Listings"])
 async def get_group_listings(group_id: int):
     """Get all bnb listings for a group."""
     with get_cursor() as cursor:
@@ -547,7 +543,7 @@ async def get_group_listings(group_id: int):
     return GroupListingsResponse(listings=listings)
 
 
-@router.post("/vote", response_model=VoteResponse)
+@router.post("/vote", response_model=VoteResponse, tags=["Voting"])
 async def submit_vote(request: VoteRequest):
     """Submit a vote for a bnb."""
     group_id = None
@@ -593,7 +589,7 @@ async def submit_vote(request: VoteRequest):
     )
 
 # TODO Remove this should not be needed as we should have all the info in the leaderboard page. 
-@router.get("/group/{group_id}/votes", response_model=GroupVotesResponse)
+@router.get("/group/{group_id}/votes", response_model=GroupVotesResponse, tags=["Voting"])
 async def get_group_votes(group_id: int):
     """Get all votes for bnbs in a group."""
     with get_cursor() as cursor:
@@ -632,7 +628,7 @@ async def get_group_votes(group_id: int):
     )
 
 
-@router.get("/group/{group_id}/leaderboard", response_model=LeaderboardResponse)
+@router.get("/group/{group_id}/leaderboard", response_model=LeaderboardResponse, tags=["Leaderboard"])
 async def get_group_leaderboard(group_id: int):
     """
     Get the leaderboard for a group with dynamically calculated scores.
@@ -764,7 +760,7 @@ async def get_group_leaderboard(group_id: int):
 # USER MANAGEMENT ENDPOINTS
 # =============================================================================
 
-@router.get("/user/{user_id}", response_model=UserProfileResponse)
+@router.get("/user/{user_id}", response_model=UserProfileResponse, tags=["Users"])
 async def get_user_profile(user_id: int):
     """Get user profile with group info."""
     with get_cursor() as cursor:
@@ -792,7 +788,7 @@ async def get_user_profile(user_id: int):
     )
 
 
-@router.patch("/user/{user_id}", response_model=UserProfileResponse)
+@router.patch("/user/{user_id}", response_model=UserProfileResponse, tags=["Users"])
 async def update_user_profile(user_id: int, request: UpdateUserRequest):
     """Update user profile (nickname and/or avatar)."""
     with get_cursor() as cursor:
@@ -846,7 +842,7 @@ async def update_user_profile(user_id: int, request: UpdateUserRequest):
     )
 
 
-@router.delete("/user/{user_id}")
+@router.delete("/user/{user_id}", tags=["Users"])
 async def delete_user(user_id: int):
     """Delete a user (leave group)."""
     with get_cursor() as cursor:
@@ -870,7 +866,7 @@ async def delete_user(user_id: int):
     return {"message": "User deleted successfully"}
 
 
-@router.get("/user/{user_id}/votes", response_model=UserVotesResponse)
+@router.get("/user/{user_id}/votes", response_model=UserVotesResponse, tags=["Users"])
 async def get_user_votes(user_id: int):
     """Get all votes by a specific user."""
     with get_cursor() as cursor:
@@ -910,7 +906,7 @@ async def get_user_votes(user_id: int):
 # GROUP MANAGEMENT ENDPOINTS
 # =============================================================================
 
-@router.patch("/group/{group_id}", response_model=GroupInfoResponse)
+@router.patch("/group/{group_id}", response_model=GroupInfoResponse, tags=["Groups"])
 async def update_group(group_id: int, request: UpdateGroupRequest):
     """Update group settings."""
     with get_cursor() as cursor:
@@ -956,7 +952,7 @@ async def update_group(group_id: int, request: UpdateGroupRequest):
     return await get_group_info(group_id)
 
 
-@router.delete("/group/{group_id}")
+@router.delete("/group/{group_id}", tags=["Groups"])
 async def delete_group(group_id: int):
     """Delete a group and all associated data."""
     with get_cursor() as cursor:
@@ -994,7 +990,7 @@ async def delete_group(group_id: int):
     return {"message": "Group deleted successfully"}
 
 
-@router.post("/group/{group_id}/destinations", response_model=DestinationInfo)
+@router.post("/group/{group_id}/destinations", response_model=DestinationInfo, tags=["Destinations"])
 async def add_destination(group_id: int, request: AddDestinationRequest):
     """Add a destination to a group."""
     with get_cursor() as cursor:
@@ -1015,7 +1011,7 @@ async def add_destination(group_id: int, request: AddDestinationRequest):
     return DestinationInfo(id=dest["id"], name=dest["location_name"])
 
 
-@router.delete("/group/{group_id}/destinations/{destination_id}")
+@router.delete("/group/{group_id}/destinations/{destination_id}", tags=["Destinations"])
 async def remove_destination(group_id: int, destination_id: int):
     """Remove a destination from a group."""
     with get_cursor() as cursor:
@@ -1047,7 +1043,7 @@ async def remove_destination(group_id: int, destination_id: int):
     return {"message": "Destination removed successfully"}
 
 
-@router.get("/group/{group_id}/stats", response_model=GroupStatsResponse)
+@router.get("/group/{group_id}/stats", response_model=GroupStatsResponse, tags=["Groups"])
 async def get_group_stats(group_id: int):
     """Get group statistics including vote progress per user."""
     with get_cursor() as cursor:
@@ -1105,7 +1101,7 @@ async def get_group_stats(group_id: int):
 # VOTING QUEUE ENDPOINTS
 # =============================================================================
 
-@router.get("/user/{user_id}/queue", response_model=VotingQueueResponse)
+@router.get("/user/{user_id}/queue", response_model=VotingQueueResponse, tags=["Voting"])
 async def get_user_voting_queue(user_id: int, limit: int = Query(default=10, le=50)):
     """Get unvoted listings for a user (their voting queue)."""
     with get_cursor() as cursor:
@@ -1225,7 +1221,7 @@ async def get_user_voting_queue(user_id: int, limit: int = Query(default=10, le=
     )
 
 
-@router.get("/user/{user_id}/vote-progress", response_model=VoteProgressResponse)
+@router.get("/user/{user_id}/vote-progress", response_model=VoteProgressResponse, tags=["Voting"])
 async def get_user_vote_progress(user_id: int):
     """Get user's voting progress."""
     with get_cursor() as cursor:
@@ -1267,7 +1263,7 @@ async def get_user_vote_progress(user_id: int):
 # LISTING DETAIL ENDPOINTS
 # =============================================================================
 
-@router.get("/listing/{airbnb_id}", response_model=ListingDetailResponse)
+@router.get("/listing/{airbnb_id}", response_model=ListingDetailResponse, tags=["Listings"])
 async def get_listing_detail(airbnb_id: str):
     """Get full listing details."""
     with get_cursor() as cursor:
@@ -1325,7 +1321,7 @@ async def get_listing_detail(airbnb_id: str):
     )
 
 
-@router.get("/listing/{airbnb_id}/votes", response_model=ListingVotesResponse)
+@router.get("/listing/{airbnb_id}/votes", response_model=ListingVotesResponse, tags=["Listings"])
 async def get_listing_votes(airbnb_id: str):
     """Get all votes for a specific listing."""
     with get_cursor() as cursor:
@@ -1372,7 +1368,7 @@ async def get_listing_votes(airbnb_id: str):
     )
 
 
-@router.post("/listing/{airbnb_id}/refresh")
+@router.post("/listing/{airbnb_id}/refresh", tags=["Listings"])
 async def refresh_listing(airbnb_id: str):
     """Trigger a re-scrape of listing details."""
     with get_cursor() as cursor:
@@ -1389,7 +1385,7 @@ async def refresh_listing(airbnb_id: str):
 # SEARCH & DISCOVERY ENDPOINTS
 # =============================================================================
 
-@router.post("/group/{group_id}/search", response_model=GroupSearchResponse)
+@router.post("/group/{group_id}/search", response_model=GroupSearchResponse, tags=["Search"])
 async def trigger_group_search(group_id: int, request: GroupSearchRequest):
     """Trigger a search for all destinations in a group."""
     with get_cursor() as cursor:
@@ -1430,7 +1426,7 @@ async def trigger_group_search(group_id: int, request: GroupSearchRequest):
     )
 
 
-@router.get("/group/{group_id}/search/status", response_model=SearchStatusResponse)
+@router.get("/group/{group_id}/search/status", response_model=SearchStatusResponse, tags=["Search"])
 async def get_search_status(group_id: int):
     """Get the search/scraping status for a group."""
     with get_cursor() as cursor:
@@ -1479,7 +1475,7 @@ async def get_search_status(group_id: int):
     )
 
 
-@router.get("/destinations/autocomplete", response_model=DestinationAutocompleteResponse)
+@router.get("/destinations/autocomplete", response_model=DestinationAutocompleteResponse, tags=["Destinations"])
 async def autocomplete_destinations(q: str = Query(..., min_length=2)):
     """Autocomplete destination names based on previously used destinations."""
     with get_cursor() as cursor:
