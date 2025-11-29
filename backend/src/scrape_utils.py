@@ -10,6 +10,45 @@ REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
 scraper_queue = Celery('trigger_app', broker=REDIS_URL)
 
 
+def trigger_search_for_user_destinations(user_id: int, page_count: int = 4) -> list[str]:
+    """
+    Trigger search jobs for all destinations associated with a user's groups.
+    
+    Args:
+        user_id: User ID to trigger searches for
+        page_count: Number of pages to scrape per destination (default 4)
+        
+    Returns:
+        List of job ID strings
+    """
+    from db import get_cursor
+    
+    # Get all destination IDs for groups the user belongs to
+    with get_cursor() as cur:
+        cur.execute("""
+            SELECT DISTINCT d.id as destination_id
+            FROM destinations d
+            JOIN groups g ON g.id = d.group_id
+            JOIN users u ON u.group_id = g.id
+            WHERE u.id = %s
+        """, (user_id,))
+        destinations = cur.fetchall()
+    
+    job_ids = []
+    for dest in destinations:
+        job_id = trigger_search_job(
+            user_id=user_id,
+            destination_id=dest['destination_id'],
+            page_start=1,
+            page_end=page_count,
+            high_prio=True
+        )
+        job_ids.append(job_id)
+    
+    print(f"Triggered {len(job_ids)} search jobs for user {user_id}")
+    return job_ids
+
+
 def trigger_search_job(
     user_id: int,
     destination_id: int,
