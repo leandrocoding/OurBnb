@@ -9,7 +9,7 @@ import { Trophy, Heart, ThumbsUp, AlertCircle, Loader2, Users, RefreshCw } from 
 
 export default function LeaderboardPage() {
   const { id } = useParams();
-  const { currentUser } = useAppStore();
+  const { currentUser, isHydrated } = useAppStore();
   
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [totalListings, setTotalListings] = useState(0);
@@ -164,7 +164,7 @@ export default function LeaderboardPage() {
     return Math.round(percent);
   };
 
-  if (isLoading && leaderboard.length === 0) {
+  if (!isHydrated || (isLoading && leaderboard.length === 0)) {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="text-center">

@@ -10,7 +10,7 @@ import { Amenity, RoomType } from '../../../../types';
 export default function FiltersPage() {
   const { id } = useParams();
   const router = useRouter();
-  const { currentUser } = useAppStore();
+  const { currentUser, isHydrated } = useAppStore();
   
   const [priceMin, setPriceMin] = useState(0);
   const [priceMax, setPriceMax] = useState(1000);
@@ -111,7 +111,7 @@ export default function FiltersPage() {
     }
   };
 
-  if (isLoading) {
+  if (!isHydrated || isLoading) {
     return (
       <div className="flex h-full items-center justify-center bg-white">
         <Loader2 className="w-8 h-8 animate-spin text-rose-500" />

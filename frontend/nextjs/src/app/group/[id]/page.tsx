@@ -47,7 +47,7 @@ const LOADING_MESSAGES = [
 export default function GroupPage() {
   const { id } = useParams();
   const router = useRouter();
-  const { currentUser } = useAppStore();
+  const { currentUser, isHydrated } = useAppStore();
   
   const [queue, setQueue] = useState<QueuedListing[]>([]);
   const [groupInfo, setGroupInfo] = useState<GroupInfo | null>(null);
@@ -62,8 +62,10 @@ export default function GroupPage() {
 
   const groupId = typeof id === 'string' ? parseInt(id, 10) : null;
 
-  // Check if user needs to be redirected
+  // Check if user needs to be redirected (only after hydration)
   useEffect(() => {
+    if (!isHydrated) return; // Wait for localStorage to be loaded
+    
     if (!currentUser) {
       // If no user, redirect to join page
       if (groupId) {
@@ -75,7 +77,7 @@ export default function GroupPage() {
       // User is in a different group, redirect to their group
       router.push(`/group/${currentUser.groupId}`);
     }
-  }, [currentUser, groupId, router]);
+  }, [currentUser, groupId, router, isHydrated]);
 
   // Cycle loading messages
   useEffect(() => {
@@ -194,8 +196,8 @@ export default function GroupPage() {
     }
   };
 
-  // Loading state
-  if (isLoading) {
+  // Loading state (including hydration)
+  if (!isHydrated || isLoading) {
     return (
       <div className="flex h-full items-center justify-center bg-slate-50">
         <div className="text-center">

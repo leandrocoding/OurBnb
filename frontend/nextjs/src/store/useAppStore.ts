@@ -18,6 +18,9 @@ interface AppState {
   // Local filters state (for the filters page before saving to backend)
   filters: Filters;
   
+  // Hydration state - true once localStorage has been loaded
+  isHydrated: boolean;
+  
   // Actions
   setCurrentUser: (user: StoredUser | null) => void;
   setFilters: (filters: Filters) => void;
@@ -58,6 +61,7 @@ export const useAppStore = create<AppState>()((set: SetState, get: GetState) => 
   filters: {
     amenities: [],
   },
+  isHydrated: false,
 
   setCurrentUser: (user: StoredUser | null) => {
     set({ currentUser: user });
@@ -79,8 +83,11 @@ export const useAppStore = create<AppState>()((set: SetState, get: GetState) => 
     if (stored) {
       set({ 
         currentUser: stored.currentUser, 
-        filters: stored.filters || { amenities: [] } 
+        filters: stored.filters || { amenities: [] },
+        isHydrated: true,
       });
+    } else {
+      set({ isHydrated: true });
     }
   },
 }));

@@ -8,7 +8,7 @@ import { Calendar, MapPin, Loader2, Copy, Check, Users } from 'lucide-react';
 
 export default function MembersPage() {
   const { id } = useParams();
-  const { currentUser } = useAppStore();
+  const { currentUser, isHydrated } = useAppStore();
   
   const [groupInfo, setGroupInfo] = useState<GroupInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -59,7 +59,7 @@ export default function MembersPage() {
     }
   };
 
-  if (isLoading) {
+  if (!isHydrated || isLoading) {
     return (
       <div className="flex h-full items-center justify-center bg-slate-50">
         <Loader2 className="w-8 h-8 animate-spin text-rose-500" />
