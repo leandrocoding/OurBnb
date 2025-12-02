@@ -4,8 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { useAppStore } from '../../../../store/useAppStore';
 import { getGroupInfo, GroupInfo } from '../../../../lib/api';
-import { Calendar, MapPin, Loader2, Copy, Check, Users, ExternalLink } from 'lucide-react';
-import Image from 'next/image';
+import { Calendar, MapPin, Loader2, Copy, Check, Users } from 'lucide-react';
 
 export default function MembersPage() {
   const { id } = useParams();
@@ -165,11 +164,10 @@ export default function MembersPage() {
               <div key={member.id} className="bg-white rounded-xl p-4 shadow-sm flex items-center gap-4 border border-slate-100">
                 <div className="w-12 h-12 rounded-full bg-slate-200 overflow-hidden relative flex-shrink-0 ring-2 ring-white shadow-sm">
                   {member.avatar ? (
-                    <Image 
+                    <img 
                       src={member.avatar} 
                       alt={member.nickname} 
-                      fill 
-                      className="object-cover" 
+                      className="absolute inset-0 w-full h-full object-cover" 
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center text-slate-400 font-bold bg-slate-100">

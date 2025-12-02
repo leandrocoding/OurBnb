@@ -4,7 +4,6 @@ import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAppStore } from '../../store/useAppStore';
 import { getGroupInfo, joinGroup, GroupInfo } from '../../lib/api';
-import Image from 'next/image';
 import { Loader2, MapPin, Calendar, Users } from 'lucide-react';
 
 function JoinGroupContent() {
@@ -129,12 +128,12 @@ function JoinGroupContent() {
             {/* Center avatar (inviter) */}
             {inviter && (
               <div className="absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-full border-4 border-white shadow-xl">
-                <Image 
+                <img 
                   src={inviter.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${inviter.nickname}`} 
                   alt={inviter.nickname} 
                   width={96} 
                   height={96}
-                  className="object-cover"
+                  className="object-cover w-full h-full"
                 />
               </div>
             )}
@@ -154,12 +153,12 @@ function JoinGroupContent() {
                   className="absolute h-16 w-16 overflow-hidden rounded-full border-4 border-white shadow-lg"
                   style={pos}
                 >
-                  <Image 
+                  <img 
                     src={user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.nickname}`} 
                     alt={user.nickname} 
                     width={64} 
                     height={64}
-                    className="object-cover"
+                    className="object-cover w-full h-full"
                   />
                 </div>
               );

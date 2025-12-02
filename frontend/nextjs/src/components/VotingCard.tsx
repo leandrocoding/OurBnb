@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
 import { Listing, VoteValue, VOTE_VETO, VOTE_OK, VOTE_LOVE, OtherVote, voteNumberToType } from '../types';
 import { X, ThumbsUp, Heart, Star, ChevronLeft, ChevronRight, MapPin, ExternalLink } from 'lucide-react';
-import Image from 'next/image';
 
 interface VotingCardProps {
   listing: Listing;
@@ -58,11 +57,10 @@ export function VotingCard({ listing, onVote, otherVotes = [], location, isBackg
       <div className="absolute top-0 left-0 w-full h-full scale-[0.95] translate-y-4 opacity-50 bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col pointer-events-none z-0">
         <div className="relative h-3/5 w-full bg-slate-200">
            {listing.images[0] && (
-             <Image 
+             <img 
                 src={listing.images[0]} 
                 alt={listing.title}
-                fill
-                className="object-cover"
+                className="absolute inset-0 w-full h-full object-cover"
              />
            )}
            <div className="absolute bottom-0 left-0 w-full h-24 bg-gradient-to-t from-black/60 to-transparent" />
@@ -140,12 +138,10 @@ export function VotingCard({ listing, onVote, otherVotes = [], location, isBackg
                 className="relative w-full h-full"
             >
                 {listing.images[imageIndex] && (
-                    <Image 
+                    <img 
                         src={listing.images[imageIndex]} 
                         alt={`${listing.title} image ${imageIndex + 1}`}
-                        fill
-                        className="object-cover"
-                        priority={true}
+                        className="absolute inset-0 w-full h-full object-cover"
                     />
                 )}
             </motion.div>

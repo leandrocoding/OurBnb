@@ -6,7 +6,6 @@ import { useAppStore } from '../../../../store/useAppStore';
 import { getLeaderboard, getLeaderboardWebSocketUrl, LeaderboardEntry, LeaderboardResponse } from '../../../../lib/api';
 import Link from 'next/link';
 import { Trophy, Heart, ThumbsUp, AlertCircle, Loader2, Users, RefreshCw } from 'lucide-react';
-import Image from 'next/image';
 
 export default function LeaderboardPage() {
   const { id } = useParams();
@@ -240,11 +239,10 @@ export default function LeaderboardPage() {
             <div key={entry.airbnb_id} className="bg-white rounded-2xl p-4 shadow-sm flex gap-4">
               <div className="relative w-24 h-24 flex-shrink-0 rounded-xl overflow-hidden bg-slate-100">
                 {entry.images[0] && (
-                  <Image 
+                  <img 
                     src={entry.images[0]} 
                     alt={entry.title} 
-                    fill 
-                    className="object-cover" 
+                    className="absolute inset-0 w-full h-full object-cover" 
                   />
                 )}
                 <div className={`absolute top-1 left-1 text-xs font-bold px-1.5 py-0.5 rounded text-white ${
