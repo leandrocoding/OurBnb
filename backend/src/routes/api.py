@@ -128,10 +128,10 @@ async def get_leaderboard_data_for_ws(group_id: int) -> dict:
             SELECT 
                 airbnb_id, title, price_per_night, bnb_rating, bnb_review_count,
                 min_bedrooms, min_beds, min_bathrooms, property_type, main_image_url,
-                total_score, filter_matches, veto_count, ok_count, love_count, super_love_count
+                score, filter_matches, veto_count, ok_count, love_count, super_love_count
             FROM leaderboard_scores
             WHERE group_id = %s
-            ORDER BY total_score DESC
+            ORDER BY score DESC
             LIMIT %s
             """,
             (group_id, LEADERBOARD_LIMIT),
@@ -188,7 +188,7 @@ async def get_leaderboard_data_for_ws(group_id: int) -> dict:
                 "bathrooms": row["min_bathrooms"],
                 "property_type": row["property_type"],
                 "amenities": amenities_by_bnb.get(airbnb_id, []),
-                "score": row["total_score"],
+                "score": row["score"],
                 "filter_matches": row["filter_matches"],
                 "votes": {
                     "veto_count": row["veto_count"],
