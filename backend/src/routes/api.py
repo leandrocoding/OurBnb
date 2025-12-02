@@ -370,6 +370,13 @@ async def get_filter(u_id: int):
         filter_row = cursor.fetchone()
         
         if filter_row:
+            # Get filter amenities
+            cursor.execute(
+                "SELECT amenity_id FROM filter_amenities WHERE user_id = %s",
+                (u_id,),
+            )
+            amenities = [row["amenity_id"] for row in cursor.fetchall()]
+            
             return FilterResponse(
                 user_id=filter_row["user_id"],
                 min_price=filter_row["min_price"],
@@ -379,6 +386,7 @@ async def get_filter(u_id: int):
                 min_bathrooms=filter_row["min_bathrooms"],
                 property_type=filter_row["property_type"],
                 updated_at=filter_row["updated_at"],
+                amenities=amenities,
             )
         
         # Return default filter if none exists
@@ -426,6 +434,17 @@ async def set_filter(u_id: int, filter_data: UserFilter):
             ),
         )
         filter_row = cursor.fetchone()
+        
+        # Delete existing filter amenities and insert new ones
+        cursor.execute("DELETE FROM filter_amenities WHERE user_id = %s", (u_id,))
+        
+        if filter_data.amenities:
+            for amenity_id in filter_data.amenities:
+                cursor.execute(
+                    "INSERT INTO filter_amenities (user_id, amenity_id) VALUES (%s, %s)",
+                    (u_id, amenity_id),
+                )
+    
     trigger_search_for_user_destinations(user_id=u_id, page_count=PAGE_COUNT_AFTER_FILTER_SET)
 
     
@@ -438,6 +457,7 @@ async def set_filter(u_id: int, filter_data: UserFilter):
         min_bathrooms=filter_row["min_bathrooms"],
         property_type=filter_row["property_type"],
         updated_at=filter_row["updated_at"],
+        amenities=filter_data.amenities,
     )
 
 
