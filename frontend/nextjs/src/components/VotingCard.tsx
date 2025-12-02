@@ -2,14 +2,13 @@
 
 import { useState } from 'react';
 import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
-import { Listing, VoteType } from '../types';
-import { X, ThumbsUp, Heart, Star, ChevronLeft, ChevronRight, MapPin } from 'lucide-react';
-import Image from 'next/image';
+import { Listing, VoteValue, VOTE_VETO, VOTE_OK, VOTE_LOVE, OtherVote, voteNumberToType } from '../types';
+import { X, ThumbsUp, Heart, Star, ChevronLeft, ChevronRight, MapPin, ExternalLink } from 'lucide-react';
 
 interface VotingCardProps {
   listing: Listing;
-  onVote: (type: VoteType) => void;
-  otherVotes?: { name: string; type: VoteType }[];
+  onVote: (vote: VoteValue) => void;
+  otherVotes?: OtherVote[];
   location?: string;
   isBackground?: boolean;
 }
@@ -24,8 +23,8 @@ export function VotingCard({ listing, onVote, otherVotes = [], location, isBackg
   const nopeOpacity = useTransform(x, [-150, -20], [1, 0]);
   const likeOpacity = useTransform(x, [20, 150], [0, 1]);
 
-  // Derived likes/loves
-  const likers = otherVotes.filter(v => v.type === 'ok' || v.type === 'love');
+  // Derived likes/loves (vote values: 1=ok, 2=love, 3=super_love)
+  const likers = otherVotes.filter(v => v.vote >= VOTE_OK);
 
   const nextImage = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -37,16 +36,31 @@ export function VotingCard({ listing, onVote, otherVotes = [], location, isBackg
     if (imageIndex > 0) setImageIndex(prev => prev - 1);
   };
 
+  // Format price
+  const formatPrice = (price: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'CHF',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(price);
+  };
+
+  // Format rating
+  const formatRating = (rating?: number) => {
+    if (!rating) return 'New';
+    return rating.toFixed(2);
+  };
+
   if (isBackground) {
     return (
       <div className="absolute top-0 left-0 w-full h-full scale-[0.95] translate-y-4 opacity-50 bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col pointer-events-none z-0">
         <div className="relative h-3/5 w-full bg-slate-200">
            {listing.images[0] && (
-             <Image 
+             <img 
                 src={listing.images[0]} 
                 alt={listing.title}
-                fill
-                className="object-cover"
+                className="absolute inset-0 w-full h-full object-cover"
              />
            )}
            <div className="absolute bottom-0 left-0 w-full h-24 bg-gradient-to-t from-black/60 to-transparent" />
@@ -69,8 +83,8 @@ export function VotingCard({ listing, onVote, otherVotes = [], location, isBackg
       drag="x"
       dragConstraints={{ left: 0, right: 0 }}
       onDragEnd={(e, { offset, velocity }) => {
-        if (offset.x > 100) onVote('ok');
-        else if (offset.x < -100) onVote('veto');
+        if (offset.x > 100) onVote(VOTE_OK);
+        else if (offset.x < -100) onVote(VOTE_VETO);
       }}
       className="absolute top-0 left-0 w-full h-full bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col z-10"
     >
@@ -80,13 +94,25 @@ export function VotingCard({ listing, onVote, otherVotes = [], location, isBackg
            <div className="flex -space-x-2">
               {likers.slice(0, 3).map((l, i) => (
                   <div key={i} className="w-6 h-6 rounded-full bg-blue-500 border-2 border-white flex items-center justify-center text-[10px] text-white">
-                      {l.name[0]}
+                      {l.userName[0]}
                   </div>
               ))}
            </div>
-           <span>Liked by {likers[0].name} {likers.length > 1 ? `& ${likers.length - 1} others` : ''}</span>
+           <span>Liked by {likers[0].userName} {likers.length > 1 ? `& ${likers.length - 1} others` : ''}</span>
         </div>
       )}
+
+      {/* Open on Airbnb button */}
+      <a 
+        href={`https://www.airbnb.com/rooms/${listing.id}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        className="absolute top-4 right-4 z-20 bg-white/90 backdrop-blur p-2 rounded-full shadow-sm hover:bg-white hover:shadow-md transition-all"
+        title="Open on Airbnb"
+      >
+        <ExternalLink className="w-5 h-5 text-slate-600" />
+      </a>
       
       {/* Drag Feedback Overlays */}
       <motion.div style={{ opacity: likeOpacity }} className="absolute top-8 right-8 z-30 pointer-events-none transform rotate-12">
@@ -112,12 +138,10 @@ export function VotingCard({ listing, onVote, otherVotes = [], location, isBackg
                 className="relative w-full h-full"
             >
                 {listing.images[imageIndex] && (
-                    <Image 
+                    <img 
                         src={listing.images[imageIndex]} 
                         alt={`${listing.title} image ${imageIndex + 1}`}
-                        fill
-                        className="object-cover"
-                        priority={true}
+                        className="absolute inset-0 w-full h-full object-cover"
                     />
                 )}
             </motion.div>
@@ -169,38 +193,41 @@ export function VotingCard({ listing, onVote, otherVotes = [], location, isBackg
       <div className="p-5 flex flex-col flex-1">
         <div className="flex justify-between items-end mb-2">
             <div>
-                <div className="text-3xl font-bold text-slate-900">{listing.price}</div>
+                <div className="text-3xl font-bold text-slate-900">{formatPrice(listing.price)}</div>
             </div>
             <div className="flex items-center gap-1 text-slate-700 font-bold text-lg">
                 <Star className="w-5 h-5 fill-yellow-400 text-yellow-400" />
-                {listing.rating}
+                {formatRating(listing.rating)}
+                {listing.reviewCount && listing.reviewCount > 0 && (
+                  <span className="text-slate-400 font-normal text-sm">({listing.reviewCount})</span>
+                )}
             </div>
         </div>
 
         <div className="flex flex-wrap gap-2 mt-2 mb-4">
             {listing.amenities.includes(4) && <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">Wifi</span>}
             {listing.amenities.includes(7) && <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">Pool</span>}
-            <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">{listing.bedrooms} Bed</span>
-             <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">{listing.bathrooms} Bath</span>
+            {listing.bedrooms && <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">{listing.bedrooms} Bed</span>}
+            {listing.bathrooms && <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">{listing.bathrooms} Bath</span>}
         </div>
 
         <div className="mt-auto flex items-center justify-center gap-6 pt-2">
              <button 
-                onClick={() => onVote('veto')}
+                onClick={() => onVote(VOTE_VETO)}
                 className="w-14 h-14 rounded-full bg-white border border-slate-200 shadow-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
              >
                  <X className="w-6 h-6" />
              </button>
 
              <button 
-                onClick={() => onVote('ok')}
+                onClick={() => onVote(VOTE_OK)}
                 className="w-14 h-14 rounded-full bg-white border border-slate-200 shadow-lg flex items-center justify-center text-yellow-500 hover:bg-yellow-50 transition-colors"
              >
                  <ThumbsUp className="w-6 h-6" />
              </button>
 
              <button 
-                onClick={() => onVote('love')}
+                onClick={() => onVote(VOTE_LOVE)}
                 className="w-16 h-16 rounded-full bg-rose-500 shadow-xl shadow-rose-500/30 flex items-center justify-center text-white hover:bg-rose-600 transition-colors"
              >
                  <Heart className="w-8 h-8 fill-current" />

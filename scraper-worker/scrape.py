@@ -203,8 +203,22 @@ def parse_airbnb_response(html_content):
         price_text = price_obj.get('price', 'N/A')
         price_accessibility = price_obj.get('accessibilityLabel', '')
 
-        # Price Integer
-        price_int = int(price_accessibility.split()[0])
+        # Price Integer - extract numeric value from accessibility label
+        # Examples: "1'029 CHF total", "CHF 1,029", "$1,234.56 total", "1.029 € gesamt"
+        # Find ALL digit sequences and pick the largest (most likely the total price)
+        price_matches = re.findall(r"([\d]+(?:['\.,][\d]+)*)", price_accessibility)
+        price_int = 0
+        for price_str in price_matches:
+            # Remove thousand separators (', . or ,) but keep the number
+            # Swiss: 1'029, US: 1,029, EU: 1.029
+            clean_price = price_str.replace("'", "").replace(",", "").replace(".", "")
+            try:
+                candidate = int(clean_price)
+                # Take the largest number (likely the total price, not per-person)
+                if candidate > price_int:
+                    price_int = candidate
+            except ValueError:
+                pass
         # Rating
         rating = result.get('avgRatingLocalized', 'N/A')
 

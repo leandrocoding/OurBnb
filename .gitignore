@@ -1,7 +1,7 @@
 scraper-worker/airbnb_results.json
 scraper-worker/testout.html
 node_modules/
-
+package-lock.json
 
 db/data
 

@@ -2,8 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useParams } from 'next/navigation';
-import { ThumbsUp, Trophy, Users, SlidersHorizontal, Settings } from 'lucide-react';
-import { VoteType } from '../../../types';
+import { ThumbsUp, Trophy, Users, SlidersHorizontal } from 'lucide-react';
 
 export default function GroupLayout({
   children,
@@ -43,7 +42,6 @@ export default function GroupLayout({
           <span className="text-xs font-medium">Rank</span>
         </Link>
 
-        {/* Using 'Members' or 'Share' as Group page for now */}
         <Link 
             href={`/group/${id}/members`}
             className={`flex flex-col items-center gap-1 transition-colors ${isActive('members') ? 'text-rose-500' : 'text-slate-400 hover:text-slate-600'}`}
@@ -63,4 +61,3 @@ export default function GroupLayout({
     </div>
   );
 }
-
