@@ -51,8 +51,7 @@ export default function FiltersPage() {
         }
       }
       
-      // Amenities would be loaded here if the API returns them
-      // setSelectedAmenities(filters.amenities || []);
+      setSelectedAmenities(filters.amenities || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load filters');
     } finally {
@@ -97,7 +96,7 @@ export default function FiltersPage() {
         min_beds: minBeds || undefined,
         min_bathrooms: minBathrooms || undefined,
         property_type: roomType,
-        // amenities: selectedAmenities, // Would include if API supports it
+        amenities: selectedAmenities, 
       });
       
       setSaveSuccess(true);
