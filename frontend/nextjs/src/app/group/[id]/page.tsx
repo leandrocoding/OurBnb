@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAppStore } from '../../../store/useAppStore';
 import { VotingCard } from '../../../components/VotingCard';
 import { getVotingQueue, submitVote, getGroupInfo, QueuedListing, GroupInfo } from '../../../lib/api';
 import { VoteValue, Listing, OtherVote } from '../../../types';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Search, Home } from 'lucide-react';
 import Link from 'next/link';
 
 // Convert API QueuedListing to component Listing format
@@ -35,6 +35,15 @@ function toOtherVotes(votes: QueuedListing['other_votes']): OtherVote[] {
   }));
 }
 
+// Loading messages to cycle through
+const LOADING_MESSAGES = [
+  "Searching for the perfect stays...",
+  "Checking availability in your destinations...",
+  "Finding places that match your filters...",
+  "Almost there, gathering options...",
+  "Discovering hidden gems...",
+];
+
 export default function GroupPage() {
   const { id } = useParams();
   const router = useRouter();
@@ -43,8 +52,13 @@ export default function GroupPage() {
   const [queue, setQueue] = useState<QueuedListing[]>([]);
   const [groupInfo, setGroupInfo] = useState<GroupInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isWaitingForListings, setIsWaitingForListings] = useState(false);
   const [isVoting, setIsVoting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
+  
+  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  const mountedRef = useRef(true);
 
   const groupId = typeof id === 'string' ? parseInt(id, 10) : null;
 
@@ -63,11 +77,24 @@ export default function GroupPage() {
     }
   }, [currentUser, groupId, router]);
 
-  // Fetch queue and group info
-  const fetchData = useCallback(async () => {
-    if (!currentUser || !groupId) return;
+  // Cycle loading messages
+  useEffect(() => {
+    if (!isWaitingForListings) return;
+    
+    const interval = setInterval(() => {
+      setLoadingMessageIndex(prev => (prev + 1) % LOADING_MESSAGES.length);
+    }, 3000);
+    
+    return () => clearInterval(interval);
+  }, [isWaitingForListings]);
 
-    setIsLoading(true);
+  // Fetch queue and group info
+  const fetchData = useCallback(async (isPolling = false) => {
+    if (!currentUser || !groupId || !mountedRef.current) return;
+
+    if (!isPolling) {
+      setIsLoading(true);
+    }
     setError(null);
 
     try {
@@ -76,18 +103,62 @@ export default function GroupPage() {
         getGroupInfo(groupId),
       ]);
       
+      if (!mountedRef.current) return;
+      
       setQueue(queueResponse.queue);
       setGroupInfo(groupResponse);
+      
+      // If queue is empty and we have no listings yet, start waiting mode
+      if (queueResponse.queue.length === 0 && queueResponse.total_unvoted === 0) {
+        setIsWaitingForListings(true);
+      } else {
+        setIsWaitingForListings(false);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load listings');
+      if (mountedRef.current) {
+        setError(err instanceof Error ? err.message : 'Failed to load listings');
+      }
     } finally {
-      setIsLoading(false);
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [currentUser, groupId]);
 
+  // Initial fetch
   useEffect(() => {
+    mountedRef.current = true;
     fetchData();
+    
+    return () => {
+      mountedRef.current = false;
+    };
   }, [fetchData]);
+
+  // Poll for listings when waiting
+  useEffect(() => {
+    if (!isWaitingForListings || !mountedRef.current) {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+      return;
+    }
+
+    // Poll every 5 seconds
+    pollingRef.current = setInterval(() => {
+      if (mountedRef.current) {
+        fetchData(true);
+      }
+    }, 5000);
+
+    return () => {
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current);
+        pollingRef.current = null;
+      }
+    };
+  }, [isWaitingForListings, fetchData]);
 
   const handleVote = async (vote: VoteValue) => {
     if (!currentUser || queue.length === 0 || isVoting) return;
@@ -110,6 +181,11 @@ export default function GroupPage() {
       if (queue.length <= 3) {
         const newQueue = await getVotingQueue(currentUser.id, 10);
         setQueue(newQueue.queue);
+        
+        // Check if we need to wait for more listings
+        if (newQueue.queue.length === 0 && newQueue.total_unvoted === 0) {
+          setIsWaitingForListings(true);
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit vote');
@@ -124,7 +200,7 @@ export default function GroupPage() {
       <div className="flex h-full items-center justify-center bg-slate-50">
         <div className="text-center">
           <Loader2 className="w-8 h-8 animate-spin text-rose-500 mx-auto mb-4" />
-          <p className="text-slate-600">Loading listings...</p>
+          <p className="text-slate-600">Loading...</p>
         </div>
       </div>
     );
@@ -138,7 +214,7 @@ export default function GroupPage() {
         <h2 className="text-xl font-bold text-slate-900 mb-2">Something went wrong</h2>
         <p className="text-slate-600 mb-6">{error}</p>
         <button
-          onClick={fetchData}
+          onClick={() => fetchData()}
           className="bg-rose-500 text-white px-6 py-3 rounded-full font-bold shadow-lg"
         >
           Try Again
@@ -152,6 +228,57 @@ export default function GroupPage() {
     return (
       <div className="flex h-full items-center justify-center bg-slate-50">
         <Loader2 className="w-8 h-8 animate-spin text-rose-500" />
+      </div>
+    );
+  }
+
+  // Waiting for listings state
+  if (isWaitingForListings) {
+    return (
+      <div className="min-h-full flex flex-col items-center justify-center bg-gradient-to-b from-rose-50 to-white p-6 text-center">
+        <div className="relative mb-8">
+          {/* Animated search icon */}
+          <div className="w-24 h-24 rounded-full bg-rose-100 flex items-center justify-center animate-pulse">
+            <Search className="w-12 h-12 text-rose-500" />
+          </div>
+          {/* Orbiting homes */}
+          <div className="absolute inset-0 animate-spin" style={{ animationDuration: '8s' }}>
+            <Home className="w-6 h-6 text-rose-400 absolute -top-2 left-1/2 -translate-x-1/2" />
+          </div>
+          <div className="absolute inset-0 animate-spin" style={{ animationDuration: '8s', animationDelay: '-2.67s' }}>
+            <Home className="w-6 h-6 text-rose-300 absolute -top-2 left-1/2 -translate-x-1/2" />
+          </div>
+          <div className="absolute inset-0 animate-spin" style={{ animationDuration: '8s', animationDelay: '-5.33s' }}>
+            <Home className="w-6 h-6 text-rose-200 absolute -top-2 left-1/2 -translate-x-1/2" />
+          </div>
+        </div>
+        
+        <h2 className="text-2xl font-bold text-slate-900 mb-3">Finding Airbnbs for you</h2>
+        <p className="text-slate-600 mb-2 max-w-xs">
+          {LOADING_MESSAGES[loadingMessageIndex]}
+        </p>
+        <p className="text-slate-400 text-sm mb-8">
+          This usually takes 30-60 seconds
+        </p>
+        
+        {/* Progress dots */}
+        <div className="flex gap-2 mb-8">
+          {[0, 1, 2].map((i) => (
+            <div 
+              key={i}
+              className="w-2 h-2 rounded-full bg-rose-300 animate-bounce"
+              style={{ animationDelay: `${i * 0.15}s` }}
+            />
+          ))}
+        </div>
+        
+        <p className="text-xs text-slate-400">
+          You can also check the{' '}
+          <Link href={`/group/${id}/leaderboard`} className="text-rose-500 underline">
+            leaderboard
+          </Link>
+          {' '}while you wait
+        </p>
       </div>
     );
   }

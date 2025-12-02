@@ -21,88 +21,115 @@ export default function LeaderboardPage() {
   
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const mountedRef = useRef(true);
 
   const groupId = typeof id === 'string' ? parseInt(id, 10) : null;
 
   // Fetch leaderboard via REST API (fallback)
   const fetchLeaderboard = useCallback(async () => {
-    if (!groupId) return;
+    if (!groupId || !mountedRef.current) return;
 
     try {
       const response = await getLeaderboard(groupId);
-      setLeaderboard(response.entries);
-      setTotalListings(response.total_listings);
-      setTotalUsers(response.total_users);
-      setError(null);
+      if (mountedRef.current) {
+        setLeaderboard(response.entries);
+        setTotalListings(response.total_listings);
+        setTotalUsers(response.total_users);
+        setError(null);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load leaderboard');
+      if (mountedRef.current) {
+        setError(err instanceof Error ? err.message : 'Failed to load leaderboard');
+      }
     } finally {
-      setIsLoading(false);
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
     }
   }, [groupId]);
 
   // Connect to WebSocket for real-time updates
   const connectWebSocket = useCallback(() => {
-    if (!groupId) return;
+    if (!groupId || !mountedRef.current) return;
 
     // Clean up existing connection
     if (wsRef.current) {
       wsRef.current.close();
+      wsRef.current = null;
     }
 
-    const wsUrl = getLeaderboardWebSocketUrl(groupId);
-    const ws = new WebSocket(wsUrl);
+    try {
+      const wsUrl = getLeaderboardWebSocketUrl(groupId);
+      const ws = new WebSocket(wsUrl);
 
-    ws.onopen = () => {
-      console.log('WebSocket connected');
-      setIsConnected(true);
-      setError(null);
-    };
+      ws.onopen = () => {
+        if (mountedRef.current) {
+          setIsConnected(true);
+          setError(null);
+        }
+      };
 
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
+      ws.onmessage = (event) => {
+        if (!mountedRef.current) return;
         
-        if (data.type === 'ping') {
-          // Respond to ping to keep connection alive
-          return;
-        }
+        try {
+          const data = JSON.parse(event.data);
+          
+          if (data.type === 'ping') {
+            // Respond to ping to keep connection alive
+            return;
+          }
 
-        if (data.entries) {
-          setLeaderboard(data.entries);
-          if (data.total_listings !== undefined) {
-            setTotalListings(data.total_listings);
+          if (data.entries) {
+            setLeaderboard(data.entries);
+            if (data.total_listings !== undefined) {
+              setTotalListings(data.total_listings);
+            }
+            if (data.total_users !== undefined) {
+              setTotalUsers(data.total_users);
+            }
+            setIsLoading(false);
           }
-          if (data.total_users !== undefined) {
-            setTotalUsers(data.total_users);
-          }
-          setIsLoading(false);
+        } catch {
+          // Ignore parse errors silently
         }
-      } catch (err) {
-        console.error('Failed to parse WebSocket message:', err);
+      };
+
+      ws.onerror = () => {
+        if (mountedRef.current) {
+          setIsConnected(false);
+        }
+      };
+
+      ws.onclose = () => {
+        if (mountedRef.current) {
+          setIsConnected(false);
+          
+          // Only attempt to reconnect if still mounted and not already reconnecting
+          if (!reconnectTimeoutRef.current) {
+            reconnectTimeoutRef.current = setTimeout(() => {
+              reconnectTimeoutRef.current = null;
+              if (mountedRef.current) {
+                connectWebSocket();
+              }
+            }, 5000);
+          }
+        }
+      };
+
+      wsRef.current = ws;
+    } catch {
+      // WebSocket construction failed, will retry via REST
+      if (mountedRef.current) {
+        setIsConnected(false);
       }
-    };
-
-    ws.onerror = (err) => {
-      console.error('WebSocket error:', err);
-      setIsConnected(false);
-    };
-
-    ws.onclose = () => {
-      console.log('WebSocket disconnected');
-      setIsConnected(false);
-      
-      // Attempt to reconnect after 5 seconds
-      reconnectTimeoutRef.current = setTimeout(() => {
-        connectWebSocket();
-      }, 5000);
-    };
-
-    wsRef.current = ws;
+    }
   }, [groupId]);
 
   // Initial load and WebSocket connection
   useEffect(() => {
+    mountedRef.current = true;
+    
     // First fetch via REST for immediate data
     fetchLeaderboard();
     
@@ -111,11 +138,15 @@ export default function LeaderboardPage() {
 
     // Cleanup on unmount
     return () => {
+      mountedRef.current = false;
+      
       if (wsRef.current) {
         wsRef.current.close();
+        wsRef.current = null;
       }
       if (reconnectTimeoutRef.current) {
         clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
       }
     };
   }, [fetchLeaderboard, connectWebSocket]);
@@ -155,7 +186,10 @@ export default function LeaderboardPage() {
           </div>
           <div className="flex items-center gap-3">
             {/* Connection status */}
-            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-slate-300'}`} title={isConnected ? 'Live updates' : 'Reconnecting...'} />
+            <div 
+              className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-slate-300'}`} 
+              title={isConnected ? 'Live updates active' : 'Connecting...'} 
+            />
             
             {/* Refresh button */}
             <button
