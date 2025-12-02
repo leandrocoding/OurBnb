@@ -1,17 +1,56 @@
+// Vote types as numbers matching backend (0=veto, 1=ok, 2=love, 3=super_love)
+export type VoteValue = 0 | 1 | 2 | 3;
+
+export const VOTE_VETO = 0;
+export const VOTE_OK = 1;
+export const VOTE_LOVE = 2;
+export const VOTE_SUPER_LOVE = 3;
+
+// Legacy string type for backward compatibility during transition
+export type VoteType = 'veto' | 'ok' | 'love' | 'super_love';
+
+// Helper to convert string vote type to number
+export function voteTypeToNumber(type: VoteType): VoteValue {
+  switch (type) {
+    case 'veto': return VOTE_VETO;
+    case 'ok': return VOTE_OK;
+    case 'love': return VOTE_LOVE;
+    case 'super_love': return VOTE_SUPER_LOVE;
+  }
+}
+
+// Helper to convert number to string vote type
+export function voteNumberToType(vote: VoteValue): VoteType {
+  switch (vote) {
+    case 0: return 'veto';
+    case 1: return 'ok';
+    case 2: return 'love';
+    case 3: return 'super_love';
+  }
+}
+
 export type User = {
-  id: string;
-  name: string;
+  id: number;
+  nickname: string;
   avatar?: string;
 };
 
-export type Group = {
-  id: string;
+export type Destination = {
+  id: number;
   name: string;
-  location: string;
-  startDate: string; // YYYY-MM-DD
-  endDate: string;   // YYYY-MM-DD
+};
+
+export type Group = {
+  id: number;
+  name: string;
+  destinations: Destination[];
+  dateStart: string; // YYYY-MM-DD
+  dateEnd: string;   // YYYY-MM-DD
+  adults: number;
+  teens: number;
+  children: number;
+  pets: number;
   members: User[];
-  code: string; // Join code
 };
 
 export enum Amenity {
@@ -54,24 +93,26 @@ export type Filters = {
 export type Listing = {
   id: string;
   title: string;
-  price: string;
-  priceInt: number;
-  rating: string;
+  price: number;
+  rating?: number;
+  reviewCount?: number;
   images: string[];
-  url: string;
-  amenities: Amenity[]; // Mocked for now
-  roomType: RoomType; // Mocked for now
-  bedrooms: number;
-  beds: number;
-  bathrooms: number;
+  amenities: number[];
+  propertyType?: string;
+  bedrooms?: number;
+  beds?: number;
+  bathrooms?: number;
 };
-
-export type VoteType = 'veto' | 'ok' | 'love';
 
 export type Vote = {
-  userId: string;
+  userId: number;
   listingId: string;
-  type: VoteType;
-  reason?: string; // For veto
+  vote: VoteValue;
+  reason?: string;
 };
 
+export type OtherVote = {
+  userId: number;
+  userName: string;
+  vote: VoteValue;
+};

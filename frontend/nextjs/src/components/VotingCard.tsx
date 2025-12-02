@@ -2,14 +2,14 @@
 
 import { useState } from 'react';
 import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
-import { Listing, VoteType } from '../types';
+import { Listing, VoteValue, VOTE_VETO, VOTE_OK, VOTE_LOVE, OtherVote, voteNumberToType } from '../types';
 import { X, ThumbsUp, Heart, Star, ChevronLeft, ChevronRight, MapPin } from 'lucide-react';
 import Image from 'next/image';
 
 interface VotingCardProps {
   listing: Listing;
-  onVote: (type: VoteType) => void;
-  otherVotes?: { name: string; type: VoteType }[];
+  onVote: (vote: VoteValue) => void;
+  otherVotes?: OtherVote[];
   location?: string;
   isBackground?: boolean;
 }
@@ -24,8 +24,8 @@ export function VotingCard({ listing, onVote, otherVotes = [], location, isBackg
   const nopeOpacity = useTransform(x, [-150, -20], [1, 0]);
   const likeOpacity = useTransform(x, [20, 150], [0, 1]);
 
-  // Derived likes/loves
-  const likers = otherVotes.filter(v => v.type === 'ok' || v.type === 'love');
+  // Derived likes/loves (vote values: 1=ok, 2=love, 3=super_love)
+  const likers = otherVotes.filter(v => v.vote >= VOTE_OK);
 
   const nextImage = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -35,6 +35,22 @@ export function VotingCard({ listing, onVote, otherVotes = [], location, isBackg
   const prevImage = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (imageIndex > 0) setImageIndex(prev => prev - 1);
+  };
+
+  // Format price
+  const formatPrice = (price: number) => {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'CHF',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format(price);
+  };
+
+  // Format rating
+  const formatRating = (rating?: number) => {
+    if (!rating) return 'New';
+    return rating.toFixed(2);
   };
 
   if (isBackground) {
@@ -69,8 +85,8 @@ export function VotingCard({ listing, onVote, otherVotes = [], location, isBackg
       drag="x"
       dragConstraints={{ left: 0, right: 0 }}
       onDragEnd={(e, { offset, velocity }) => {
-        if (offset.x > 100) onVote('ok');
-        else if (offset.x < -100) onVote('veto');
+        if (offset.x > 100) onVote(VOTE_OK);
+        else if (offset.x < -100) onVote(VOTE_VETO);
       }}
       className="absolute top-0 left-0 w-full h-full bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col z-10"
     >
@@ -80,11 +96,11 @@ export function VotingCard({ listing, onVote, otherVotes = [], location, isBackg
            <div className="flex -space-x-2">
               {likers.slice(0, 3).map((l, i) => (
                   <div key={i} className="w-6 h-6 rounded-full bg-blue-500 border-2 border-white flex items-center justify-center text-[10px] text-white">
-                      {l.name[0]}
+                      {l.userName[0]}
                   </div>
               ))}
            </div>
-           <span>Liked by {likers[0].name} {likers.length > 1 ? `& ${likers.length - 1} others` : ''}</span>
+           <span>Liked by {likers[0].userName} {likers.length > 1 ? `& ${likers.length - 1} others` : ''}</span>
         </div>
       )}
       
@@ -169,38 +185,41 @@ export function VotingCard({ listing, onVote, otherVotes = [], location, isBackg
       <div className="p-5 flex flex-col flex-1">
         <div className="flex justify-between items-end mb-2">
             <div>
-                <div className="text-3xl font-bold text-slate-900">{listing.price}</div>
+                <div className="text-3xl font-bold text-slate-900">{formatPrice(listing.price)}</div>
             </div>
             <div className="flex items-center gap-1 text-slate-700 font-bold text-lg">
                 <Star className="w-5 h-5 fill-yellow-400 text-yellow-400" />
-                {listing.rating}
+                {formatRating(listing.rating)}
+                {listing.reviewCount && listing.reviewCount > 0 && (
+                  <span className="text-slate-400 font-normal text-sm">({listing.reviewCount})</span>
+                )}
             </div>
         </div>
 
         <div className="flex flex-wrap gap-2 mt-2 mb-4">
             {listing.amenities.includes(4) && <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">Wifi</span>}
             {listing.amenities.includes(7) && <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">Pool</span>}
-            <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">{listing.bedrooms} Bed</span>
-             <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">{listing.bathrooms} Bath</span>
+            {listing.bedrooms && <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">{listing.bedrooms} Bed</span>}
+            {listing.bathrooms && <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">{listing.bathrooms} Bath</span>}
         </div>
 
         <div className="mt-auto flex items-center justify-center gap-6 pt-2">
              <button 
-                onClick={() => onVote('veto')}
+                onClick={() => onVote(VOTE_VETO)}
                 className="w-14 h-14 rounded-full bg-white border border-slate-200 shadow-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
              >
                  <X className="w-6 h-6" />
              </button>
 
              <button 
-                onClick={() => onVote('ok')}
+                onClick={() => onVote(VOTE_OK)}
                 className="w-14 h-14 rounded-full bg-white border border-slate-200 shadow-lg flex items-center justify-center text-yellow-500 hover:bg-yellow-50 transition-colors"
              >
                  <ThumbsUp className="w-6 h-6" />
              </button>
 
              <button 
-                onClick={() => onVote('love')}
+                onClick={() => onVote(VOTE_LOVE)}
                 className="w-16 h-16 rounded-full bg-rose-500 shadow-xl shadow-rose-500/30 flex items-center justify-center text-white hover:bg-rose-600 transition-colors"
              >
                  <Heart className="w-8 h-8 fill-current" />
