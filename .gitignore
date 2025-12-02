@@ -1,3 +1,10 @@
 scraper-worker/airbnb_results.json
 scraper-worker/testout.html
 node_modules/
+
+
+db/data
+
+__pycache__
+
+.env
