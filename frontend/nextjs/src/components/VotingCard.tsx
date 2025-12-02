@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
 import { Listing, VoteValue, VOTE_VETO, VOTE_OK, VOTE_LOVE, OtherVote, voteNumberToType } from '../types';
-import { X, ThumbsUp, Heart, Star, ChevronLeft, ChevronRight, MapPin } from 'lucide-react';
+import { X, ThumbsUp, Heart, Star, ChevronLeft, ChevronRight, MapPin, ExternalLink } from 'lucide-react';
 import Image from 'next/image';
 
 interface VotingCardProps {
@@ -103,6 +103,18 @@ export function VotingCard({ listing, onVote, otherVotes = [], location, isBackg
            <span>Liked by {likers[0].userName} {likers.length > 1 ? `& ${likers.length - 1} others` : ''}</span>
         </div>
       )}
+
+      {/* Open on Airbnb button */}
+      <a 
+        href={`https://www.airbnb.com/rooms/${listing.id}`}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        className="absolute top-4 right-4 z-20 bg-white/90 backdrop-blur p-2 rounded-full shadow-sm hover:bg-white hover:shadow-md transition-all"
+        title="Open on Airbnb"
+      >
+        <ExternalLink className="w-5 h-5 text-slate-600" />
+      </a>
       
       {/* Drag Feedback Overlays */}
       <motion.div style={{ opacity: likeOpacity }} className="absolute top-8 right-8 z-30 pointer-events-none transform rotate-12">
