@@ -80,8 +80,8 @@ def search_worker(args: Dict[str, Any]):
     # Calculate total guests
     guests = (
         destination.get("adults", 0) + 
-        destination.get("teens", 0) + 
-        destination.get("children", 0)
+        destination.get("children", 0) + 
+        destination.get("infants", 0)
     )
     checkin = str(destination.get("date_range_start"))
     checkout = str(destination.get("date_range_end"))
@@ -112,7 +112,9 @@ def search_worker(args: Dict[str, Any]):
     # Perform the search
     result_json = search_airbnb(
         location=location,
-        guests=guests,
+        adults=destination.get("adults", 0),
+        children = destination.get("children", 0),
+        infants = destination.get("infants", 0),
         checkin=checkin,
         checkout=checkout,
         min_price=user_filter.get("min_price"),

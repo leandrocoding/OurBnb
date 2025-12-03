@@ -16,8 +16,8 @@ class CreateGroupRequest(BaseModel):
     date_start: date
     date_end: date
     adults: int
-    teens: int = 0
     children: int = 0
+    infants: int = 0
     pets: int = 0
 
 
@@ -43,8 +43,8 @@ class GroupInfoResponse(BaseModel):
     date_start: date
     date_end: date
     adults: int
-    teens: int
     children: int
+    infants: int
     pets: int
     users: List[UserInfo]
 
@@ -238,8 +238,8 @@ class UpdateGroupRequest(BaseModel):
     date_start: Optional[date] = None
     date_end: Optional[date] = None
     adults: Optional[int] = None
-    teens: Optional[int] = None
     children: Optional[int] = None
+    infants: Optional[int] = None
     pets: Optional[int] = None
 
 

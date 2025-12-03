@@ -59,8 +59,8 @@ export interface GroupInfo {
   date_start: string;
   date_end: string;
   adults: number;
-  teens: number;
   children: number;
+  infants: number;
   pets: number;
   users: UserInfo[];
 }
@@ -71,8 +71,8 @@ export interface CreateGroupRequest {
   date_start: string;
   date_end: string;
   adults: number;
-  teens: number;
   children: number;
+  infants: number;
   pets: number;
 }
 
