@@ -662,14 +662,22 @@ async def get_group_leaderboard(group_id: int):
     Returns the top listings ordered by score descending.
     """
     with get_cursor() as cursor:
-        # Verify group exists and get user count
+        # Get group info for booking link generation
+        cursor.execute(
+            """SELECT id, adults, children, infants, pets, date_range_start, date_range_end 
+               FROM groups WHERE id = %s""",
+            (group_id,),
+        )
+        group = cursor.fetchone()
+        if group is None:
+            raise HTTPException(status_code=404, detail="Group not found")
+        
+        # Get user count
         cursor.execute(
             "SELECT COUNT(*) as count FROM users WHERE group_id = %s",
             (group_id,),
         )
         user_count = cursor.fetchone()
-        if user_count is None:
-            raise HTTPException(status_code=404, detail="Group not found")
         total_users = user_count["count"]
         
         # Get total listings count
@@ -734,6 +742,14 @@ async def get_group_leaderboard(group_id: int):
             for amenity in cursor.fetchall():
                 amenities_by_bnb[amenity["airbnb_id"]].append(amenity["amenity_id"])
         
+        # Build booking link parameters from group data
+        check_in = group["date_range_start"].strftime("%Y-%m-%d")
+        check_out = group["date_range_end"].strftime("%Y-%m-%d")
+        adults = group["adults"]
+        children = group["children"]
+        infants = group["infants"]
+        pets = group["pets"]
+        
         # Build response
         entries = []
         for rank, bnb in enumerate(scored_bnbs, start=1):
@@ -746,6 +762,15 @@ async def get_group_leaderboard(group_id: int):
             images.extend(images_by_bnb.get(airbnb_id, []))
             if not images:
                 images = ["https://placehold.co/400x300?text=No+Image"]
+            
+            # Build Airbnb booking link
+            booking_link = f"https://www.airbnb.ch/rooms/{airbnb_id}?adults={adults}&check_in={check_in}&check_out={check_out}"
+            if children > 0:
+                booking_link += f"&children={children}"
+            if infants > 0:
+                booking_link += f"&infants={infants}"
+            if pets > 0:
+                booking_link += f"&pets={pets}"
             
             entries.append(LeaderboardEntry(
                 rank=rank,
@@ -768,6 +793,7 @@ async def get_group_leaderboard(group_id: int):
                     love_count=bnb["love_count"],
                     super_love_count=bnb["super_love_count"],
                 ),
+                booking_link=booking_link,
             ))
     
     return LeaderboardResponse(

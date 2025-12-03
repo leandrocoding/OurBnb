@@ -183,6 +183,8 @@ class LeaderboardEntry(BaseModel):
     score: int
     filter_matches: int  # how many users' filters this listing matches
     votes: LeaderboardVoteSummary
+    # Booking link to Airbnb
+    booking_link: str
 
 
 class LeaderboardResponse(BaseModel):
