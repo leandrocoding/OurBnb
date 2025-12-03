@@ -42,7 +42,54 @@ def parse_rating(rating_str: str) -> tuple:
         return float(rating_str), 0
     except (ValueError, TypeError):
         return None, 0
+    
 
+def import_listings(result_json : str, user_id, user_filter, group_id, destination_id, filter_amenities):
+
+    try:
+        listings = json.loads(result_json)
+    except json.JSONDecodeError:
+        print("Failed to parse search results")
+        return 0
+    
+    bnbs_inserted = 0
+    for listing in listings:
+        rating, review_count = parse_rating(listing.get("rating"))
+        
+        # Prepare bnb data - now includes group_id and destination_id
+        bnb_data = {
+            "airbnb_id": listing.get("id"),
+            "group_id": group_id,
+            "destination_id": destination_id,
+            "title": listing.get("title"),
+            "price_per_night": listing.get("price_int", 0),
+            "rating": rating,
+            "review_count": review_count or 0,
+            "main_image_url": listing.get("images", [None])[0] if listing.get("images") else None,
+            # Set filter-based constraints since property matched the search
+            "min_bedrooms": user_filter.get("min_bedrooms"),
+            "min_beds": user_filter.get("min_beds"),
+            "min_bathrooms": user_filter.get("min_bathrooms"),
+            "property_type": user_filter.get("property_type"),
+        }
+        
+        try:
+            airbnb_id = insert_bnb(bnb_data)
+            
+            # Insert additional images (skip first one as it's main_image_url)
+            extra_images = listing.get("images", [])[1:]
+            if extra_images:
+                insert_bnb_images(airbnb_id, extra_images)
+            
+            # Insert filter amenities (since the search matched, the bnb must have these)
+            if filter_amenities:
+                insert_bnb_amenities(airbnb_id, filter_amenities)
+            
+            bnbs_inserted += 1
+        except Exception as e:
+            print(f"Failed to insert bnb {listing.get('id')}: {e}")
+    
+    return bnbs_inserted
 
 @app.task(name='scraper.search_job') 
 def search_worker(args: Dict[str, Any]):
@@ -59,6 +106,7 @@ def search_worker(args: Dict[str, Any]):
     destination_id = args.get("destination_id")
     page_start = args.get("page_start", 1)
     page_end = args.get("page_end", 2)
+    bnbs_inserted = 0
     
     if not user_id or not destination_id:
         print("Missing required data: user_id or destination_id")
@@ -110,11 +158,12 @@ def search_worker(args: Dict[str, Any]):
     update_filter_request_progress(user_id, destination_id, 0, max_pages)
     
     # Perform the search
-    result_json = search_airbnb(
+    bnbs_inserted = search_airbnb(
         location=location,
         adults=destination.get("adults", 0),
         children = destination.get("children", 0),
         infants = destination.get("infants", 0),
+        pets= destination.get("pets", 0),
         checkin=checkin,
         checkout=checkout,
         min_price=user_filter.get("min_price"),
@@ -124,59 +173,17 @@ def search_worker(args: Dict[str, Any]):
         min_bathrooms=user_filter.get("min_bathrooms"),
         room_type=room_type,
         max_pages=max_pages,
+        import_function = lambda result_json: import_listings(result_json=result_json, user_id=user_id, user_filter=user_filter, group_id=group_id, destination_id=destination_id, filter_amenities=filter_amenities),
     )
     
-    # Parse results and insert into database
-    try:
-        listings = json.loads(result_json)
-    except json.JSONDecodeError:
-        print("Failed to parse search results")
-        return "Failed: could not parse results"
-    
-    bnbs_inserted = 0
-    for listing in listings:
-        rating, review_count = parse_rating(listing.get("rating"))
-        
-        # Prepare bnb data - now includes group_id and destination_id
-        bnb_data = {
-            "airbnb_id": listing.get("id"),
-            "group_id": group_id,
-            "destination_id": destination_id,
-            "title": listing.get("title"),
-            "price_per_night": listing.get("price_int", 0),
-            "rating": rating,
-            "review_count": review_count or 0,
-            "main_image_url": listing.get("images", [None])[0] if listing.get("images") else None,
-            # Set filter-based constraints since property matched the search
-            "min_bedrooms": user_filter.get("min_bedrooms"),
-            "min_beds": user_filter.get("min_beds"),
-            "min_bathrooms": user_filter.get("min_bathrooms"),
-            "property_type": user_filter.get("property_type"),
-        }
-        
-        try:
-            airbnb_id = insert_bnb(bnb_data)
-            
-            # Insert additional images (skip first one as it's main_image_url)
-            extra_images = listing.get("images", [])[1:]
-            if extra_images:
-                insert_bnb_images(airbnb_id, extra_images)
-            
-            # Insert filter amenities (since the search matched, the bnb must have these)
-            if filter_amenities:
-                insert_bnb_amenities(airbnb_id, filter_amenities)
-            
-            bnbs_inserted += 1
-        except Exception as e:
-            print(f"Failed to insert bnb {listing.get('id')}: {e}")
-    
-    # Update progress - all pages fetched
+        # Update progress - all pages fetched
     update_filter_request_progress(user_id, destination_id, max_pages)
     
-    print(f"Inserted {bnbs_inserted} bnbs for destination {location}")
     
+    print(f"Done: Inserted {bnbs_inserted} bnbs for destination {location}")
     time.sleep(randint(1, 4))
     return f"Done: inserted {bnbs_inserted} bnbs"
+
 
 
 @app.task(name='scraper.listing_job')

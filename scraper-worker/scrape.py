@@ -7,6 +7,7 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 from urllib.parse import quote
 from enum import IntEnum, Enum
+from typing import Callable, Literal
 
 class Amenities(IntEnum):
     WIFI = 4
@@ -242,7 +243,7 @@ def parse_airbnb_response(html_content):
 
     return listings, next_cursor
 # TODO add support for additional search params
-def search_airbnb(location, adults, children, infants, pets, checkin, checkout, min_price=None, max_price=None, amenities=None, room_type=None, min_bedrooms=None, min_beds=None, min_bathrooms=None, max_pages=2):
+def search_airbnb(location, adults, children, infants, pets, checkin, checkout, import_function : Callable[[str],int], min_price=None, max_price=None, amenities=None, room_type=None, min_bedrooms=None, min_beds=None, min_bathrooms=None, max_pages=2):
     url_path, params = build_airbnb_url(location, adults, children, infants, pets, checkin, checkout, price_min=min_price, price_max=max_price, amenities=amenities, room_type=room_type, min_bedrooms=min_bedrooms, min_beds=min_beds, min_bathrooms=min_bathrooms)
 
     headers = {
@@ -259,6 +260,7 @@ def search_airbnb(location, adults, children, infants, pets, checkin, checkout, 
     }
 
     all_listings = []
+    total_listing_count = 0
     current_cursor = None
 
     for page in range(1, max_pages + 1):
@@ -272,10 +274,7 @@ def search_airbnb(location, adults, children, infants, pets, checkin, checkout, 
 
         try:
             response = requests.get(url_path, params=current_params, headers=headers)
-            print(response.url)
-            with open("testout.html", "w", encoding="utf-8") as f:
-
-                f.write(response.text)
+            
             response.raise_for_status()
 
             listings, next_cursor = parse_airbnb_response(response.text)
@@ -283,8 +282,8 @@ def search_airbnb(location, adults, children, infants, pets, checkin, checkout, 
             if isinstance(listings, dict) and "error" in listings:
                 print(f"Error on page {page}: {listings['error']}")
                 break
-
-            all_listings.extend(listings)
+            total_listing_count += import_function(json.dumps(listings, indent=4, ensure_ascii=False))
+            # all_listings.extend(listings)
             print(f"Found {len(listings)} listings on page {page}.")
 
             # Logic to stop or continue
@@ -302,7 +301,7 @@ def search_airbnb(location, adults, children, infants, pets, checkin, checkout, 
             print(f"Request error on page {page}: {e}")
             break
 
-    return json.dumps(all_listings, indent=4, ensure_ascii=False)
+    return total_listing_count
 
 if __name__ == "__main__":
     loc = "Zürich"
