@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconn
 from constants import (
     PAGE_COUNT_AFTER_FILTER_SET,
     LEADERBOARD_LIMIT,
+    QUEUE_BUFFER_SIZE,
 )
 from models.schemas import (
     TestData,
@@ -25,6 +26,7 @@ from models.schemas import (
     GroupListingsResponse,
     VoteRequest,
     VoteResponse,
+    VoteWithNextResponse,
     GroupVote,
     GroupVotesResponse,
     LeaderboardEntry,
@@ -613,10 +615,22 @@ async def get_group_listings(group_id: int):
     return GroupListingsResponse(listings=listings)
 
 
-@router.post("/vote", response_model=VoteResponse, tags=["Voting"])
+@router.post("/vote", response_model=VoteWithNextResponse, tags=["Voting"])
 async def submit_vote(request: VoteRequest):
-    """Submit a vote for a bnb."""
+    """
+    Submit a vote for a bnb and get the next listing to vote on.
+    
+    This endpoint:
+    1. Records the vote
+    2. Removes the voted listing from the user's queue buffer
+    3. Tops up the buffer if needed
+    4. Returns the vote confirmation along with the next listing
+    
+    This allows single round-trip voting with instant next-card display.
+    """
     group_id = None
+    next_listing = None
+    
     with get_cursor() as cursor:
         # Verify user exists
         cursor.execute("SELECT id, group_id FROM users WHERE id = %s", (request.user_id,))
@@ -646,16 +660,27 @@ async def submit_vote(request: VoteRequest):
             (request.user_id, request.airbnb_id, request.vote, request.reason),
         )
         vote_row = cursor.fetchone()
+        
+        # Remove the voted listing from user's queue buffer
+        cursor.execute(
+            "DELETE FROM bnb_queue WHERE user_id = %s AND airbnb_id = %s",
+            (request.user_id, request.airbnb_id),
+        )
+        
+        # Top up the queue buffer and get the next listing
+        _top_up_queue(cursor, request.user_id, group_id)
+        next_listing = _get_next_from_queue(cursor, request.user_id, group_id)
     
     # Notify WebSocket clients of the leaderboard update
     if group_id:
         asyncio.create_task(notify_leaderboard_update(group_id))
     
-    return VoteResponse(
+    return VoteWithNextResponse(
         user_id=vote_row["user_id"],
         airbnb_id=vote_row["airbnb_id"],
         vote=vote_row["vote"],
         reason=vote_row["reason"],
+        next_listing=next_listing,
     )
 
 # TODO Remove this should not be needed as we should have all the info in the leaderboard page. 
@@ -1197,16 +1222,190 @@ async def get_group_stats(group_id: int):
 # VOTING QUEUE ENDPOINTS
 # =============================================================================
 
-@router.get("/user/{user_id}/nextToVote", response_model=NextToVoteResponse, tags=["Voting"])
-async def get_user_next_to_vote(user_id: int, exclude_bnb: int = Query(default=None)):
-    """Returns the next airbnb to vote on except exclude_bnb """
-    # TODO Implement this
-    return NextToVoteResponse()
+def _top_up_queue(cursor, user_id: int, group_id: int, exclude_airbnb_id: str = None) -> None:
+    """
+    Top up the user's voting queue buffer if it's below threshold.
+    Uses FOR UPDATE SKIP LOCKED to prevent concurrent top-ups from duplicating.
+    """
+    # Count current queue size
+    cursor.execute(
+        "SELECT COUNT(*) as count FROM bnb_queue WHERE user_id = %s",
+        (user_id,),
+    )
+    current_size = cursor.fetchone()["count"]
+    
+    if current_size >= QUEUE_BUFFER_SIZE:
+        return
+    
+    needed = QUEUE_BUFFER_SIZE - current_size
+    
+    # Build exclude clause
+    exclude_clause = ""
+    params = [group_id, user_id, user_id]
+    if exclude_airbnb_id:
+        exclude_clause = "AND b.airbnb_id != %s"
+        params.append(exclude_airbnb_id)
+    params.append(needed)
+    
+    # Insert new entries: bnbs not yet voted on and not already in queue
+    # Order by leaderboard score (prioritize high-potential listings)
+    cursor.execute(
+        f"""
+        INSERT INTO bnb_queue (user_id, airbnb_id)
+        SELECT %s, b.airbnb_id
+        FROM bnbs b
+        LEFT JOIN leaderboard_scores ls ON ls.airbnb_id = b.airbnb_id
+        WHERE b.group_id = %s
+          AND NOT EXISTS (
+              SELECT 1 FROM votes v WHERE v.airbnb_id = b.airbnb_id AND v.user_id = %s
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM bnb_queue q WHERE q.airbnb_id = b.airbnb_id AND q.user_id = %s
+          )
+          {exclude_clause}
+        ORDER BY COALESCE(ls.score, 0) DESC, b.airbnb_id
+        LIMIT %s
+        ON CONFLICT (user_id, airbnb_id) DO NOTHING
+        """,
+        tuple([user_id] + params),
+    )
 
-# Legacy, prefere nexttovote
+
+def _get_next_from_queue(cursor, user_id: int, group_id: int) -> NextToVoteResponse:
+    """
+    Get the next listing from the user's queue buffer.
+    Returns a fully populated NextToVoteResponse or an empty one if no listings.
+    """
+    # Get total listings count (all bnbs in the group)
+    cursor.execute(
+        "SELECT COUNT(*) as count FROM bnbs WHERE group_id = %s",
+        (group_id,),
+    )
+    total_listings = cursor.fetchone()["count"]
+    
+    # Get total remaining count (unvoted bnbs for this user's group)
+    cursor.execute(
+        """
+        SELECT COUNT(*) as count FROM bnbs b
+        WHERE b.group_id = %s
+          AND NOT EXISTS (
+              SELECT 1 FROM votes v WHERE v.airbnb_id = b.airbnb_id AND v.user_id = %s
+          )
+        """,
+        (group_id, user_id),
+    )
+    total_remaining = cursor.fetchone()["count"]
+    
+    # Get the oldest queued listing
+    cursor.execute(
+        """
+        SELECT q.airbnb_id, b.title, b.price_per_night, b.bnb_rating, b.bnb_review_count,
+               b.main_image_url, b.min_bedrooms, b.min_beds, b.min_bathrooms, b.property_type
+        FROM bnb_queue q
+        JOIN bnbs b ON b.airbnb_id = q.airbnb_id
+        WHERE q.user_id = %s
+        ORDER BY q.queued_at ASC
+        LIMIT 1
+        """,
+        (user_id,),
+    )
+    queued = cursor.fetchone()
+    
+    if not queued:
+        return NextToVoteResponse(has_listing=False, total_remaining=total_remaining, total_listings=total_listings)
+    
+    airbnb_id = queued["airbnb_id"]
+    
+    # Get images
+    cursor.execute(
+        "SELECT image_url FROM bnb_images WHERE airbnb_id = %s",
+        (airbnb_id,),
+    )
+    extra_images = cursor.fetchall()
+    
+    images = []
+    if queued["main_image_url"]:
+        images.append(queued["main_image_url"])
+    images.extend([img["image_url"] for img in extra_images])
+    if not images:
+        images = ["https://placehold.co/400x300?text=No+Image"]
+    
+    # Get amenities
+    cursor.execute(
+        "SELECT amenity_id FROM bnb_amenities WHERE airbnb_id = %s",
+        (airbnb_id,),
+    )
+    amenities = [a["amenity_id"] for a in cursor.fetchall()]
+    
+    # Get other users' votes on this listing
+    cursor.execute(
+        """
+        SELECT v.user_id, u.nickname as user_name, v.airbnb_id, v.vote, v.reason
+        FROM votes v
+        JOIN users u ON u.id = v.user_id
+        WHERE v.airbnb_id = %s AND v.user_id != %s
+        """,
+        (airbnb_id, user_id),
+    )
+    other_votes = [
+        GroupVote(
+            user_id=v["user_id"],
+            user_name=v["user_name"],
+            airbnb_id=v["airbnb_id"],
+            vote=v["vote"],
+            reason=v["reason"],
+        )
+        for v in cursor.fetchall()
+    ]
+    
+    return NextToVoteResponse(
+        airbnb_id=airbnb_id,
+        title=queued["title"] or "Untitled",
+        price=queued["price_per_night"] or 0,
+        rating=float(queued["bnb_rating"]) if queued["bnb_rating"] else None,
+        review_count=queued["bnb_review_count"],
+        images=images,
+        bedrooms=queued["min_bedrooms"],
+        beds=queued["min_beds"],
+        bathrooms=queued["min_bathrooms"],
+        property_type=queued["property_type"],
+        amenities=amenities,
+        other_votes=other_votes,
+        has_listing=True,
+        total_remaining=total_remaining,
+        total_listings=total_listings,
+    )
+
+
+@router.get("/user/{user_id}/next-to-vote", response_model=NextToVoteResponse, tags=["Voting"])
+async def get_user_next_to_vote(user_id: int, exclude_airbnb_id: str = Query(default=None)):
+    """
+    Returns the next Airbnb listing for the user to vote on.
+    
+    Uses a per-user buffer (bnb_queue table) to ensure listings are always available.
+    The buffer is automatically topped up when running low.
+    
+    - exclude_airbnb_id: Optional airbnb_id to exclude (e.g., currently displayed card)
+    """
+    with get_cursor() as cursor:
+        # Verify user exists and get group_id
+        cursor.execute("SELECT id, group_id FROM users WHERE id = %s", (user_id,))
+        user = cursor.fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        group_id = user["group_id"]
+        
+        # Top up the queue buffer if needed
+        _top_up_queue(cursor, user_id, group_id, exclude_airbnb_id)
+        
+        # Get the next listing from queue
+        return _get_next_from_queue(cursor, user_id, group_id)
+
+# Legacy endpoint - prefer /user/{user_id}/next-to-vote
 @router.get("/user/{user_id}/queue", response_model=VotingQueueResponse, tags=["Voting"], deprecated=True)
 async def get_user_voting_queue(user_id: int, limit: int = Query(default=10, le=50)):
-    """Get unvoted listings for a user (their voting queue). Prefere nextToVote"""
+    """Get unvoted listings for a user (their voting queue). Deprecated: use /next-to-vote instead."""
     with get_cursor() as cursor:
         cursor.execute("SELECT id, group_id FROM users WHERE id = %s", (user_id,))
         user = cursor.fetchone()

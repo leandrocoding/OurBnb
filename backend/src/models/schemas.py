@@ -141,12 +141,13 @@ class GroupVotesResponse(BaseModel):
 
 
 class NextToVoteResponse(BaseModel):
-    airbnb_id: str
-    title: str
-    price: int
+    """Response for next listing to vote on. All fields optional when no listings available."""
+    airbnb_id: Optional[str] = None
+    title: Optional[str] = None
+    price: Optional[int] = None
     rating: Optional[float] = None
     review_count: Optional[int] = None
-    images: List[str]
+    images: List[str] = []
     bedrooms: Optional[int] = None
     beds: Optional[int] = None
     bathrooms: Optional[int] = None
@@ -154,6 +155,21 @@ class NextToVoteResponse(BaseModel):
     amenities: List[int] = []
     # Other users' votes on this listing
     other_votes: List[GroupVote] = []
+    # Meta info
+    has_listing: bool = False
+    total_remaining: int = 0  # Unvoted listings for this user
+    total_listings: int = 0   # Total listings in the group (for detecting "no listings yet" vs "all voted")
+
+
+class VoteWithNextResponse(BaseModel):
+    """Response after voting that includes the next listing to vote on."""
+    # Vote confirmation
+    user_id: int
+    airbnb_id: str
+    vote: int
+    reason: Optional[str] = None
+    # Next listing (same structure as NextToVoteResponse)
+    next_listing: Optional[NextToVoteResponse] = None
 
 
 # Leaderboard schemas
