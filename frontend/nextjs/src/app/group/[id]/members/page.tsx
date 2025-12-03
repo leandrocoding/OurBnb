@@ -144,8 +144,8 @@ export default function MembersPage() {
                 <p className="text-xs text-slate-500 font-bold uppercase tracking-wider">Group Size</p>
                 <p className="text-slate-900 font-bold text-lg leading-tight">
                   {groupInfo.adults} adults
-                  {groupInfo.teens > 0 && `, ${groupInfo.teens} teens`}
                   {groupInfo.children > 0 && `, ${groupInfo.children} children`}
+                  {groupInfo.infants > 0 && `, ${groupInfo.infants} infants`}
                   {groupInfo.pets > 0 && `, ${groupInfo.pets} pets`}
                 </p>
               </div>

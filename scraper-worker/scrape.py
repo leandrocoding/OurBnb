@@ -32,7 +32,7 @@ class RoomType(Enum):
     ENTIRE_HOME = "Entire home/apt"
     PRIVATE_ROOM = "Private room"
 
-def build_airbnb_url(location, guests, checkin, checkout, price_min=None, price_max=None, amenities=None, room_type=None, min_bedrooms=None, min_beds=None, min_bathrooms=None):
+def build_airbnb_url(location,  adults, children, infants, pets, checkin, checkout, price_min=None, price_max=None, amenities=None, room_type=None, min_bedrooms=None, min_beds=None, min_bathrooms=None):
     base_url = "https://www.airbnb.ch/s"
     url_path = f"{base_url}/homes"
     # TODO: Fix üöä etc. Currently not working e.g. Zürich
@@ -53,7 +53,10 @@ def build_airbnb_url(location, guests, checkin, checkout, price_min=None, price_
         "date_picker_type": "calendar",
         "checkin": checkin,
         "checkout": checkout,
-        "adults": guests,
+        "adults": adults,
+        "children" : children,
+        "infants" : infants,
+        "pets" : pets,
         "search_type": "search_query",
         "query": sanitized_location,
         # "pagination_search": "true", # Only needed for page 2+
@@ -239,8 +242,8 @@ def parse_airbnb_response(html_content):
 
     return listings, next_cursor
 # TODO add support for additional search params
-def search_airbnb(location, guests, checkin, checkout, min_price=None, max_price=None, amenities=None, room_type=None, min_bedrooms=None, min_beds=None, min_bathrooms=None, max_pages=2):
-    url_path, params = build_airbnb_url(location, guests, checkin, checkout, price_min=min_price, price_max=max_price, amenities=amenities, room_type=room_type, min_bedrooms=min_bedrooms, min_beds=min_beds, min_bathrooms=min_bathrooms)
+def search_airbnb(location, adults, children, infants, pets, checkin, checkout, min_price=None, max_price=None, amenities=None, room_type=None, min_bedrooms=None, min_beds=None, min_bathrooms=None, max_pages=2):
+    url_path, params = build_airbnb_url(location, adults, children, infants, pets, checkin, checkout, price_min=min_price, price_max=max_price, amenities=amenities, room_type=room_type, min_bedrooms=min_bedrooms, min_beds=min_beds, min_bathrooms=min_bathrooms)
 
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0",

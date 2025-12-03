@@ -71,7 +71,7 @@ def get_destination(destination_id: int) -> dict:
     with get_cursor() as cursor:
         cursor.execute(
             """
-            SELECT d.id, d.group_id, d.location_name, g.adults, g.teens, g.children, g.pets, 
+            SELECT d.id, d.group_id, d.location_name, g.adults, g.children, g.infants, g.pets, 
                    g.date_range_start, g.date_range_end
             FROM destinations d
             JOIN groups g ON d.group_id = g.id

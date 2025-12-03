@@ -17,8 +17,8 @@ export default function CreateGroupPage() {
   const [endDate, setEndDate] = useState('2025-07-22');
   const [userName, setUserName] = useState('');
   const [adults, setAdults] = useState(2);
-  const [teens, setTeens] = useState(0);
   const [children, setChildren] = useState(0);
+  const [infants, setInfants] = useState(0);
   const [pets, setPets] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,8 +56,8 @@ export default function CreateGroupPage() {
         date_start: startDate,
         date_end: endDate,
         adults,
-        teens,
         children,
+        infants,
         pets,
       });
 
@@ -196,22 +196,12 @@ export default function CreateGroupPage() {
           </label>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-xs text-slate-500 mb-1 block">Adults</label>
+              <label className="text-xs text-slate-500 mb-1 block">Adults (13+)</label>
               <input
                 type="number"
                 min={1}
                 value={adults}
                 onChange={(e) => setAdults(parseInt(e.target.value) || 1)}
-                className="w-full rounded-xl border-0 bg-slate-50 p-3 text-slate-900 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-rose-500"
-              />
-            </div>
-            <div>
-              <label className="text-xs text-slate-500 mb-1 block">Teens (13-17)</label>
-              <input
-                type="number"
-                min={0}
-                value={teens}
-                onChange={(e) => setTeens(parseInt(e.target.value) || 0)}
                 className="w-full rounded-xl border-0 bg-slate-50 p-3 text-slate-900 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-rose-500"
               />
             </div>
@@ -222,6 +212,16 @@ export default function CreateGroupPage() {
                 min={0}
                 value={children}
                 onChange={(e) => setChildren(parseInt(e.target.value) || 0)}
+                className="w-full rounded-xl border-0 bg-slate-50 p-3 text-slate-900 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-rose-500"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">Infants ({"<"}2)</label>
+              <input
+                type="number"
+                min={0}
+                value={infants}
+                onChange={(e) => setInfants(parseInt(e.target.value) || 0)}
                 className="w-full rounded-xl border-0 bg-slate-50 p-3 text-slate-900 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-rose-500"
               />
             </div>

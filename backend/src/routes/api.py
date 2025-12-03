@@ -226,15 +226,15 @@ async def create_group(request: CreateGroupRequest):
         # Insert the group
         cursor.execute(
             """
-            INSERT INTO groups (name, adults, teens, children, pets, date_range_start, date_range_end)
+            INSERT INTO groups (name, adults, children, infants, pets, date_range_start, date_range_end)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """,
             (
                 request.group_name,
                 request.adults,
-                request.teens,
                 request.children,
+                request.infants,
                 request.pets,
                 request.date_start,
                 request.date_end,
@@ -262,7 +262,7 @@ async def get_group_info(group_id: int):
     with get_cursor() as cursor:
         # Get group info
         cursor.execute(
-            """SELECT id, name, date_range_start, date_range_end, adults, teens, children, pets 
+            """SELECT id, name, date_range_start, date_range_end, adults, children, infants, pets 
                FROM groups WHERE id = %s""",
             (group_id,),
         )
@@ -302,8 +302,8 @@ async def get_group_info(group_id: int):
         date_start=group["date_range_start"],
         date_end=group["date_range_end"],
         adults=group["adults"],
-        teens=group["teens"],
         children=group["children"],
+        infants=group["infants"],
         pets=group["pets"],
         users=user_list,
     )
@@ -930,12 +930,12 @@ async def update_group(group_id: int, request: UpdateGroupRequest):
         if request.adults is not None:
             updates.append("adults = %s")
             values.append(request.adults)
-        if request.teens is not None:
-            updates.append("teens = %s")
-            values.append(request.teens)
         if request.children is not None:
             updates.append("children = %s")
             values.append(request.children)
+        if request.infants is not None:
+            updates.append("infants = %s")
+            values.append(request.infants)
         if request.pets is not None:
             updates.append("pets = %s")
             values.append(request.pets)

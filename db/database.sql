@@ -2,16 +2,16 @@ CREATE TABLE "groups" (
   "id" serial PRIMARY KEY,
   "name" text NOT NULL,
   "adults" integer NOT NULL DEFAULT 0,
-  "teens" integer NOT NULL DEFAULT 0,
   "children" integer NOT NULL DEFAULT 0,
+  "infants" integer NOT NULL DEFAULT 0,
   "pets" integer NOT NULL DEFAULT 0,
   "date_range_start" date NOT NULL,
   "date_range_end" date NOT NULL,
   "created_at" timestamptz DEFAULT (now()),
   CHECK (date_range_start < date_range_end),
   CHECK (adults >= 0),
-  CHECK (teens >= 0),
   CHECK (children >= 0),
+  CHECK (infants >= 0),
   CHECK (pets >= 0)
 );
 

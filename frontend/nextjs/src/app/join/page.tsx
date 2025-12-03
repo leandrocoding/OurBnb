@@ -187,8 +187,8 @@ function JoinGroupContent() {
           <Users className="w-5 h-5 text-rose-500 flex-shrink-0" />
           <span className="text-slate-700 font-medium">
             {groupInfo.adults} adults
-            {groupInfo.teens > 0 && `, ${groupInfo.teens} teens`}
             {groupInfo.children > 0 && `, ${groupInfo.children} children`}
+            {groupInfo.infants > 0 && `, ${groupInfo.infants} infants`}
             {groupInfo.pets > 0 && `, ${groupInfo.pets} pets`}
           </span>
         </div>

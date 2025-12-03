@@ -47,8 +47,8 @@ export type Group = {
   dateStart: string; // YYYY-MM-DD
   dateEnd: string;   // YYYY-MM-DD
   adults: number;
-  teens: number;
   children: number;
+  infants: number;
   pets: number;
   members: User[];
 };
