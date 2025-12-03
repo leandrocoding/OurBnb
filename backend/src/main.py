@@ -17,8 +17,8 @@ cors_middleware = Middleware(
 )
 
 app = FastAPI(
-    title="FWE'25 Backend API",
-    version="1.0.0",
+    title="Ourbnb Backend API",
+    version="1.0.2",
     middleware=[cors_middleware],
 )
 
