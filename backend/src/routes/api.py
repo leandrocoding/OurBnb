@@ -325,8 +325,8 @@ async def join_group(request: JoinGroupRequest):
         
         # Check if nickname already taken
         cursor.execute(
-            "SELECT id FROM users WHERE nickname = %s",
-            (request.username,),
+            "SELECT id FROM users WHERE nickname = %s AND group_id = %s",
+            (request.username, request.group_id,),
         )
         existing_user = cursor.fetchone()
         if existing_user:

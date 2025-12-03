@@ -24,7 +24,7 @@ CREATE TABLE "destinations" (
 CREATE TABLE "users" (
   "id" serial PRIMARY KEY,
   "group_id" integer NOT NULL,
-  "nickname" text UNIQUE NOT NULL,
+  "nickname" text NOT NULL,
   "joined_at" timestamptz DEFAULT (now()),
   "avatar" text
 );
