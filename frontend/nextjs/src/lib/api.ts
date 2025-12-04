@@ -338,3 +338,19 @@ export async function updateUserFilters(
     body: JSON.stringify(filters),
   });
 }
+
+// ============ Demo API ============
+
+export interface DemoGroupInfo {
+  group_id: number;
+  group_name: string;
+  users: UserInfo[];
+}
+
+export interface DemoAllGroupsResponse {
+  groups: DemoGroupInfo[];
+}
+
+export async function getAllGroupsForDemo(): Promise<DemoAllGroupsResponse> {
+  return fetchApi<DemoAllGroupsResponse>('/api/demo/groups');
+}

@@ -376,3 +376,19 @@ class DestinationAutocompleteResponse(BaseModel):
     """Autocomplete results"""
     query: str
     suggestions: List[DestinationSuggestion]
+
+
+# =============================================================================
+# Demo Schemas
+# =============================================================================
+
+class DemoGroupInfo(BaseModel):
+    """Group info for demo page"""
+    group_id: int
+    group_name: str
+    users: List[UserInfo]
+
+
+class DemoAllGroupsResponse(BaseModel):
+    """All groups with users for demo login"""
+    groups: List[DemoGroupInfo]

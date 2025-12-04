@@ -55,6 +55,9 @@ from models.schemas import (
     SearchStatusResponse,
     DestinationSuggestion,
     DestinationAutocompleteResponse,
+    # Demo
+    DemoGroupInfo,
+    DemoAllGroupsResponse,
 )
 from db import get_cursor
 from scrape_utils import trigger_search_for_user_destinations, trigger_search_job, trigger_listing_inquiry
@@ -254,6 +257,52 @@ async def create_group(request: CreateGroupRequest):
             )
     
     return CreateGroupResponse(group_id=group_id)
+
+
+@router.get("/demo/groups", response_model=DemoAllGroupsResponse, tags=["Demo"])
+async def get_all_groups_for_demo():
+    """Get all groups with their users for demo login page."""
+    with get_cursor() as cursor:
+        # Get all groups
+        cursor.execute(
+            """
+            SELECT id, name 
+            FROM groups 
+            ORDER BY id
+            """
+        )
+        groups = cursor.fetchall()
+        
+        result_groups = []
+        for group in groups:
+            # Get users for this group
+            cursor.execute(
+                """
+                SELECT id, nickname, avatar 
+                FROM users 
+                WHERE group_id = %s 
+                ORDER BY id
+                """,
+                (group["id"],),
+            )
+            users = cursor.fetchall()
+            
+            result_groups.append(
+                DemoGroupInfo(
+                    group_id=group["id"],
+                    group_name=group["name"],
+                    users=[
+                        UserInfo(
+                            id=u["id"],
+                            nickname=u["nickname"],
+                            avatar=u["avatar"],
+                        )
+                        for u in users
+                    ],
+                )
+            )
+        
+        return DemoAllGroupsResponse(groups=result_groups)
 
 
 @router.get("/group/info/{group_id}", response_model=GroupInfoResponse, tags=["Groups"])
