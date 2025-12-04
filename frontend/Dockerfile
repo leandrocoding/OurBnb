@@ -21,6 +21,10 @@ CMD ["yarn", "dev"]
 
 FROM base AS production
 
+# Build argument for API URL (needed at build time for NEXT_PUBLIC_* vars)
+ARG NEXT_PUBLIC_API_URL=""
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+
 # Build the app
 RUN yarn run build
 
