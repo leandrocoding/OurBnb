@@ -81,11 +81,11 @@ def build_airbnb_url(location,  adults, children, infants, pets, checkin, checko
         params["channel"] = "EXPLORE"
         if num_nights:
             params["price_filter_num_nights"] = str(num_nights)
-        
+
         if price_min is not None:
             params["price_min"] = str(price_min)
             selected_filter_order.append(f"price_min:{price_min}")
-            
+
         if price_max is not None:
             params["price_max"] = str(price_max)
             selected_filter_order.append(f"price_max:{price_max}")
@@ -94,7 +94,7 @@ def build_airbnb_url(location,  adults, children, infants, pets, checkin, checko
         has_filters = True
         if not isinstance(amenities, list):
             amenities = [amenities]
-        
+
         # Convert Enum members to their values if necessary
         clean_amenities = []
         for a in amenities:
@@ -102,7 +102,7 @@ def build_airbnb_url(location,  adults, children, infants, pets, checkin, checko
                 clean_amenities.append(a.value)
             else:
                 clean_amenities.append(a)
-        
+
         params["amenities[]"] = clean_amenities
         for amenity in clean_amenities:
             selected_filter_order.append(f"amenities:{amenity}")
@@ -139,10 +139,9 @@ def build_airbnb_url(location,  adults, children, infants, pets, checkin, checko
              params["update_selected_filters"] = "true"
         else:
              params["update_selected_filters"] = "false"
-             
+
         if selected_filter_order:
             params["selected_filter_order[]"] = selected_filter_order
-
     return url_path, params
 
 def parse_airbnb_response(html_content):
@@ -205,24 +204,21 @@ def parse_airbnb_response(html_content):
         # Prices
         price_obj = result.get('structuredDisplayPrice', {}).get('primaryLine', {})
         price_text = price_obj.get('price', 'N/A')
+        if(price_text == 'N/A'):
+            price_text=price_obj.get('discountedPrice', 'N/A')
+        if(price_text == 'N/A'):
+            print("\n couldn't find price object, see json \n")
+            print(result)
         price_accessibility = price_obj.get('accessibilityLabel', '')
 
-        # Price Integer - extract numeric value from accessibility label
-        # Examples: "1'029 CHF total", "CHF 1,029", "$1,234.56 total", "1.029 € gesamt"
-        # Find ALL digit sequences and pick the largest (most likely the total price)
-        price_matches = re.findall(r"([\d]+(?:['\.,][\d]+)*)", price_accessibility)
         price_int = 0
-        for price_str in price_matches:
-            # Remove thousand separators (', . or ,) but keep the number
-            # Swiss: 1'029, US: 1,029, EU: 1.029
-            clean_price = price_str.replace("'", "").replace(",", "").replace(".", "")
+        if price_text and price_text != 'N/A':
             try:
-                candidate = int(clean_price)
-                # Take the largest number (likely the total price, not per-person)
-                if candidate > price_int:
-                    price_int = candidate
-            except ValueError:
-                pass
+                clean_price = price_text.replace("’", "").replace("CHF", "").strip()
+                price_int = int(clean_price)
+            except (ValueError, AttributeError):
+                price_int = 0
+
         # Rating
         rating = result.get('avgRatingLocalized', 'N/A')
 
@@ -274,7 +270,7 @@ def search_airbnb(location, adults, children, infants, pets, checkin, checkout, 
 
         try:
             response = requests.get(url_path, params=current_params, headers=headers)
-            
+
             response.raise_for_status()
 
             listings, next_cursor = parse_airbnb_response(response.text)
@@ -304,26 +300,46 @@ def search_airbnb(location, adults, children, infants, pets, checkin, checkout, 
     return total_listing_count
 
 if __name__ == "__main__":
-    loc = "Zürich"
-    ppl = 2
-    in_date = "2025-11-28"
-    out_date = "2025-11-30"
+    # Collect all listings to write to file
+    all_listings_data = []
+
+    # Import function that collects listings
+    def simple_import(json_str):
+        """Simple callback that collects listings and returns count"""
+        data = json.loads(json_str)
+        all_listings_data.extend(data)
+
+        # Append price_text to prices.txt file
+        with open("prices.txt", "a", encoding="utf-8") as price_file:
+            for listing in data:
+                price_file.write(f"{listing.get('price_text', 'N/A')}\n")
+
+        return len(data)
+
+    loc = "Tokyo"
+    adults = 2
+    children = 0
+    infants = 0
+    pets = 0
+    checkin = "2026-11-28"
+    checkout = "2026-11-30"
 
     # Example with filters
-    result_json = search_airbnb(
-        loc, ppl, in_date, out_date, 
-        min_price=100, 
-        max_price=500, 
-        amenities=[Amenities.WIFI, Amenities.KITCHEN], 
+    total_count = search_airbnb(
+        loc, adults, children, infants, pets, checkin, checkout,
+        import_function=simple_import,
+        min_price=100,
+        max_price=5000,
+        amenities=[Amenities.WIFI, Amenities.KITCHEN],
         room_type=RoomType.ENTIRE_HOME,
         min_bedrooms=2,
         min_bathrooms=1,
-        max_pages=1
+        max_pages=3
     )
 
-    # Optional: Write to file to inspect easier
+    # Write results to file
     with open("airbnb_results.json", "w", encoding="utf-8") as f:
-        f.write(result_json)
-    print(result_json)
+        json.dump(all_listings_data, f, indent=4, ensure_ascii=False)
 
-    print("Scraping complete. Results saved to airbnb_results.json")
+    print(f"\nScraping complete. Total listings processed: {total_count}")
+    print(f"Results saved to airbnb_results.json")
