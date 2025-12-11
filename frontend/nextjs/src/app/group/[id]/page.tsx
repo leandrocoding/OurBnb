@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAppStore } from '../../../store/useAppStore';
-import { VotingCard } from '../../../components/VotingCard';
+import { VotingCard, preloadImages } from '../../../components/VotingCard';
 import { getVotingQueue, submitVote, getGroupInfo, QueuedListing, GroupInfo } from '../../../lib/api';
 import { VoteValue, Listing, OtherVote } from '../../../types';
 import { Loader2, Search, Home } from 'lucide-react';
@@ -47,7 +47,7 @@ const LOADING_MESSAGES = [
 export default function GroupPage() {
   const { id } = useParams();
   const router = useRouter();
-  const { currentUser, isHydrated } = useAppStore();
+  const { currentUser, isHydrated, shouldRefreshQueue, setShouldRefreshQueue } = useAppStore();
   
   const [queue, setQueue] = useState<QueuedListing[]>([]);
   const [groupInfo, setGroupInfo] = useState<GroupInfo | null>(null);
@@ -136,6 +136,31 @@ export default function GroupPage() {
       mountedRef.current = false;
     };
   }, [fetchData]);
+
+  // Refresh queue when filters have changed
+  useEffect(() => {
+    if (shouldRefreshQueue && currentUser) {
+      // Clear the current queue and fetch fresh data
+      setQueue([]);
+      setIsLoading(true);
+      fetchData();
+      // Reset the flag
+      setShouldRefreshQueue(false);
+    }
+  }, [shouldRefreshQueue, currentUser, fetchData, setShouldRefreshQueue]);
+
+  // Preload images for upcoming listings in the queue
+  useEffect(() => {
+    if (queue.length > 0) {
+      // Preload images for the next 3 listings (excluding current which VotingCard handles)
+      const upcomingListings = queue.slice(1, 4);
+      upcomingListings.forEach((listing) => {
+        if (listing.images.length > 0) {
+          preloadImages(listing.images);
+        }
+      });
+    }
+  }, [queue]);
 
   // Poll for listings when waiting
   useEffect(() => {

@@ -3,23 +3,27 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAppStore } from '../../../../store/useAppStore';
-import { getUserFilters, updateUserFilters, FilterResponse } from '../../../../lib/api';
+import { getUserFilters, updateUserFilters} from '../../../../lib/api';
 import { Minus, Plus, Check, Loader2, AlertCircle } from 'lucide-react';
 import { Amenity, RoomType } from '../../../../types';
+import Slider from 'rc-slider';
+import 'rc-slider/assets/index.css';
 
 export default function FiltersPage() {
   const { id } = useParams();
   const router = useRouter();
-  const { currentUser, isHydrated } = useAppStore();
-  
+  const { currentUser, isHydrated, setShouldRefreshQueue } = useAppStore();
+
   const [priceMin, setPriceMin] = useState(0);
   const [priceMax, setPriceMax] = useState(1000);
+  const [priceMinInput, setPriceMinInput] = useState('0');
+  const [priceMaxInput, setPriceMaxInput] = useState('1000');
   const [minBedrooms, setMinBedrooms] = useState(0);
   const [minBeds, setMinBeds] = useState(0);
   const [minBathrooms, setMinBathrooms] = useState(0);
   const [roomType, setRoomType] = useState<RoomType | undefined>(undefined);
   const [selectedAmenities, setSelectedAmenities] = useState<Amenity[]>([]);
-  
+
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -36,13 +40,15 @@ export default function FiltersPage() {
 
     try {
       const filters = await getUserFilters(currentUser.id);
-      
+
       setPriceMin(filters.min_price || 0);
       setPriceMax(filters.max_price || 1000);
+      setPriceMinInput(String(filters.min_price || 0));
+      setPriceMaxInput(String(filters.max_price || 1000));
       setMinBedrooms(filters.min_bedrooms || 0);
       setMinBeds(filters.min_beds || 0);
       setMinBathrooms(filters.min_bathrooms || 0);
-      
+
       if (filters.property_type) {
         if (filters.property_type === RoomType.ENTIRE_HOME) {
           setRoomType(RoomType.ENTIRE_HOME);
@@ -50,7 +56,7 @@ export default function FiltersPage() {
           setRoomType(RoomType.PRIVATE_ROOM);
         }
       }
-      
+
       setSelectedAmenities(filters.amenities || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load filters');
@@ -74,6 +80,8 @@ export default function FiltersPage() {
   const handleReset = () => {
     setPriceMin(0);
     setPriceMax(1000);
+    setPriceMinInput('0');
+    setPriceMaxInput('1000');
     setMinBedrooms(0);
     setMinBeds(0);
     setMinBathrooms(0);
@@ -96,8 +104,11 @@ export default function FiltersPage() {
         min_beds: minBeds || undefined,
         min_bathrooms: minBathrooms || undefined,
         property_type: roomType,
-        amenities: selectedAmenities, 
+        amenities: selectedAmenities,
       });
+
+      // Signal that the voting queue should be refreshed
+      setShouldRefreshQueue(true);
       
       setSaveSuccess(true);
       setTimeout(() => {
@@ -122,8 +133,8 @@ export default function FiltersPage() {
     <div className="bg-white h-full overflow-y-auto pb-32">
       <header className="bg-white px-6 py-4 flex items-center justify-between sticky top-0 z-50 border-b border-slate-100 shadow-sm">
         <h1 className="font-bold text-slate-900 text-xl">My Preferences</h1>
-        <button 
-          onClick={handleReset} 
+        <button
+          onClick={handleReset}
           className="text-rose-500 font-medium text-sm"
         >
           Reset
@@ -133,81 +144,111 @@ export default function FiltersPage() {
       {/* Onboarding message */}
       <div className="mx-6 mt-4 p-4 bg-blue-50 border border-blue-200 rounded-xl">
         <p className="text-blue-800 text-sm">
-          <strong>Set your preferences</strong> to help us find the best Airbnbs for your group. 
+          <strong>Set your preferences</strong> to help us find the best Airbnbs for your group.
           After you save, we&apos;ll start searching for listings that match everyone&apos;s criteria.
         </p>
       </div>
 
       {error && (
         <div className="mx-6 mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 flex-shrink-0" />
+          <AlertCircle className="w-4 h-4 shrink-0" />
           {error}
         </div>
       )}
 
       <div className="p-6 flex flex-col gap-8">
-        
+
         {/* Price Range */}
         <div>
           <div className="flex justify-between mb-4">
             <h3 className="font-bold text-slate-900">Price Range</h3>
             <span className="font-bold text-rose-500">${priceMin} - ${priceMax}</span>
           </div>
-          
-          {/* Dual Slider Simulation */}
-          <div className="relative h-12 mb-4 px-2">
-            <div className="absolute top-1/2 left-0 w-full h-1 bg-slate-200 rounded-full -translate-y-1/2"></div>
-            <div 
-              className="absolute top-1/2 h-1 bg-rose-500 rounded-full -translate-y-1/2"
-              style={{ 
-                left: `${(priceMin / 1000) * 100}%`, 
-                right: `${100 - (priceMax / 1000) * 100}%` 
+
+          {/* rc-slider Range */}
+          <div className="px-2 mb-6">
+            <Slider
+              range
+              min={0}
+              max={1000}
+              allowCross={false}
+              step={10}
+              value={[priceMin, priceMax]}
+              onChange={(value) => {
+                if (Array.isArray(value)) {
+                  setPriceMin(value[0]);
+                  setPriceMax(value[1]);
+                  setPriceMinInput(String(value[0]));
+                  setPriceMaxInput(String(value[1]));
+                }
               }}
-            ></div>
-            <input 
-              type="range"
-              min="0"
-              max="1000"
-              value={priceMin}
-              onChange={(e) => {
-                const val = parseInt(e.target.value);
-                if (val < priceMax) setPriceMin(val);
+              styles={{
+                track: { backgroundColor: '#f43f5e', height: 6 },
+                rail: { backgroundColor: '#e2e8f0', height: 6 },
+                handle: {
+                  backgroundColor: 'white',
+                  borderColor: '#f43f5e',
+                  borderWidth: 2,
+                  height: 24,
+                  width: 24,
+                  marginTop: -9,
+                  opacity: 1,
+                  boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.1)',
+                },
               }}
-              className="absolute top-1/2 left-0 w-full -translate-y-1/2 appearance-none bg-transparent pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-rose-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-sm z-20"
-            />
-            <input 
-              type="range"
-              min="0"
-              max="1000"
-              value={priceMax}
-              onChange={(e) => {
-                const val = parseInt(e.target.value);
-                if (val > priceMin) setPriceMax(val);
-              }}
-              className="absolute top-1/2 left-0 w-full -translate-y-1/2 appearance-none bg-transparent pointer-events-none [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-rose-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-sm z-30"
             />
           </div>
 
           <div className="px-2 flex gap-4">
             <div className="flex-1">
               <label className="text-xs text-slate-500 mb-1 block">Min Price</label>
-              <input 
-                type="number"
-                min="0"
-                max={priceMax}
-                value={priceMin}
-                onChange={(e) => setPriceMin(parseInt(e.target.value) || 0)}
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={priceMinInput}
+                onChange={(e) => {
+                  const filtered = e.target.value.replace(/[^0-9]/g, '');
+                  setPriceMinInput(filtered);
+                  const val = parseInt(filtered);
+                  if (!isNaN(val)) setPriceMin(val);
+                }}
+                onBlur={() => {
+                  const val = parseInt(priceMinInput);
+                  let finalMin = isNaN(val) || priceMinInput === '' ? 0 : Math.max(0, Math.min(1000, val));
+                  if (finalMin > priceMax) {
+                    setPriceMax(finalMin);
+                    setPriceMaxInput(String(finalMin));
+                  }
+                  setPriceMin(finalMin);
+                  setPriceMinInput(String(finalMin));
+                }}
                 className="w-full p-2 border border-slate-200 rounded-lg text-slate-900"
               />
             </div>
             <div className="flex-1">
               <label className="text-xs text-slate-500 mb-1 block">Max Price</label>
-              <input 
-                type="number"
-                min={priceMin}
-                max="1000"
-                value={priceMax}
-                onChange={(e) => setPriceMax(parseInt(e.target.value) || 1000)}
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                value={priceMaxInput}
+                onChange={(e) => {
+                  const filtered = e.target.value.replace(/[^0-9]/g, '');
+                  setPriceMaxInput(filtered);
+                  const val = parseInt(filtered);
+                  if (!isNaN(val)) setPriceMax(val);
+                }}
+                onBlur={() => {
+                  const val = parseInt(priceMaxInput);
+                  let finalMax = isNaN(val) || priceMaxInput === '' ? 1000 : Math.max(0, Math.min(1000, val));
+                  if (finalMax < priceMin) {
+                    setPriceMin(finalMax);
+                    setPriceMinInput(String(finalMax));
+                  }
+                  setPriceMax(finalMax);
+                  setPriceMaxInput(String(finalMax));
+                }}
                 className="w-full p-2 border border-slate-200 rounded-lg text-slate-900"
               />
             </div>
@@ -237,19 +278,19 @@ export default function FiltersPage() {
         {/* Rooms and Beds */}
         <div>
           <h3 className="font-bold text-slate-900 mb-4">Rooms and Beds</h3>
-          
+
           {/* Bedrooms */}
           <div className="flex items-center justify-between mb-4">
             <span className="text-slate-700">Bedrooms</span>
             <div className="flex items-center gap-3">
-              <button 
+              <button
                 onClick={() => setMinBedrooms(Math.max(0, minBedrooms - 1))}
                 className="w-8 h-8 rounded-full border border-slate-300 flex items-center justify-center text-slate-500 hover:border-slate-800 hover:text-slate-800"
               >
                 <Minus className="w-4 h-4" />
               </button>
               <span className="w-8 text-center text-slate-900">{minBedrooms || 'Any'}</span>
-              <button 
+              <button
                 onClick={() => setMinBedrooms(minBedrooms + 1)}
                 className="w-8 h-8 rounded-full border border-slate-300 flex items-center justify-center text-slate-500 hover:border-slate-800 hover:text-slate-800"
               >
@@ -262,14 +303,14 @@ export default function FiltersPage() {
           <div className="flex items-center justify-between mb-4">
             <span className="text-slate-700">Beds</span>
             <div className="flex items-center gap-3">
-              <button 
+              <button
                 onClick={() => setMinBeds(Math.max(0, minBeds - 1))}
                 className="w-8 h-8 rounded-full border border-slate-300 flex items-center justify-center text-slate-500 hover:border-slate-800 hover:text-slate-800"
               >
                 <Minus className="w-4 h-4" />
               </button>
               <span className="w-8 text-center text-slate-900">{minBeds || 'Any'}</span>
-              <button 
+              <button
                 onClick={() => setMinBeds(minBeds + 1)}
                 className="w-8 h-8 rounded-full border border-slate-300 flex items-center justify-center text-slate-500 hover:border-slate-800 hover:text-slate-800"
               >
@@ -282,14 +323,14 @@ export default function FiltersPage() {
           <div className="flex items-center justify-between">
             <span className="text-slate-700">Bathrooms</span>
             <div className="flex items-center gap-3">
-              <button 
+              <button
                 onClick={() => setMinBathrooms(Math.max(0, minBathrooms - 1))}
                 className="w-8 h-8 rounded-full border border-slate-300 flex items-center justify-center text-slate-500 hover:border-slate-800 hover:text-slate-800"
               >
                 <Minus className="w-4 h-4" />
               </button>
               <span className="w-8 text-center text-slate-900">{minBathrooms || 'Any'}</span>
-              <button 
+              <button
                 onClick={() => setMinBathrooms(minBathrooms + 1)}
                 className="w-8 h-8 rounded-full border border-slate-300 flex items-center justify-center text-slate-500 hover:border-slate-800 hover:text-slate-800"
               >
@@ -341,7 +382,7 @@ export default function FiltersPage() {
       </div>
 
       <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-40">
-        <button 
+        <button
           onClick={handleSave}
           disabled={isSaving}
           className="bg-rose-500 text-white px-8 py-3 rounded-full font-bold shadow-lg flex items-center gap-2 hover:bg-rose-600 transition-colors disabled:opacity-50"

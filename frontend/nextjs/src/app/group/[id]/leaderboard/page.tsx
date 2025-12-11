@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import { useAppStore } from '../../../../store/useAppStore';
 import { getLeaderboard, getLeaderboardWebSocketUrl, LeaderboardEntry, LeaderboardResponse } from '../../../../lib/api';
 import Link from 'next/link';
-import { Trophy, Heart, ThumbsUp, AlertCircle, Loader2, Users, RefreshCw } from 'lucide-react';
+import { Trophy, Heart, ThumbsUp, AlertCircle, Loader2, Users, RefreshCw, ExternalLink } from 'lucide-react';
 
 export default function LeaderboardPage() {
   const { id } = useParams();
@@ -236,7 +236,13 @@ export default function LeaderboardPage() {
       ) : (
         <div className="p-6 flex flex-col gap-4">
           {leaderboard.map((entry) => (
-            <div key={entry.airbnb_id} className="bg-white rounded-2xl p-4 shadow-sm flex gap-4">
+            <a 
+              key={entry.airbnb_id} 
+              href={`https://www.airbnb.com/rooms/${entry.airbnb_id}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="bg-white rounded-2xl p-4 shadow-sm flex gap-4 hover:shadow-md hover:scale-[1.01] transition-all cursor-pointer"
+            >
               <div className="relative w-24 h-24 flex-shrink-0 rounded-xl overflow-hidden bg-slate-100">
                 {entry.images[0] && (
                   <img 
@@ -257,7 +263,10 @@ export default function LeaderboardPage() {
               <div className="flex-1 min-w-0">
                 <div className="flex justify-between items-start">
                   <h3 className="font-bold text-slate-900 truncate pr-2">{entry.title}</h3>
-                  <span className="font-bold text-green-600 flex-shrink-0">{getMatchPercent(entry)}%</span>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <span className="font-bold text-green-600">{getMatchPercent(entry)}%</span>
+                    <ExternalLink className="w-4 h-4 text-slate-400" />
+                  </div>
                 </div>
                 
                 <p className="text-slate-600 text-sm mb-2">
@@ -293,7 +302,7 @@ export default function LeaderboardPage() {
                   </p>
                 )}
               </div>
-            </div>
+            </a>
           ))}
         </div>
       )}

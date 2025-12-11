@@ -10,7 +10,7 @@ function JoinGroupContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const setCurrentUser = useAppStore((state) => state.setCurrentUser);
-  
+
   const [userName, setUserName] = useState('');
   const [groupId, setGroupId] = useState<number | null>(null);
   const [groupInfo, setGroupInfo] = useState<GroupInfo | null>(null);
@@ -128,16 +128,16 @@ function JoinGroupContent() {
             {/* Center avatar (inviter) */}
             {inviter && (
               <div className="absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-full border-4 border-white shadow-xl">
-                <img 
-                  src={inviter.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${inviter.nickname}`} 
-                  alt={inviter.nickname} 
-                  width={96} 
+                <img
+                  src={inviter.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${inviter.nickname}`}
+                  alt={inviter.nickname}
+                  width={96}
                   height={96}
                   className="object-cover w-full h-full"
                 />
               </div>
             )}
-            
+
             {/* Other members around */}
             {groupInfo.users.slice(1, 5).map((user, i) => {
               const positions = [
@@ -148,15 +148,15 @@ function JoinGroupContent() {
               ];
               const pos = positions[i];
               return (
-                <div 
+                <div
                   key={user.id}
                   className="absolute h-16 w-16 overflow-hidden rounded-full border-4 border-white shadow-lg"
                   style={pos}
                 >
-                  <img 
-                    src={user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.nickname}`} 
-                    alt={user.nickname} 
-                    width={64} 
+                  <img
+                    src={user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.nickname}`}
+                    alt={user.nickname}
+                    width={64}
                     height={64}
                     className="object-cover w-full h-full"
                   />
@@ -174,17 +174,17 @@ function JoinGroupContent() {
       {/* Trip details */}
       <div className="bg-slate-50 rounded-2xl p-4 mb-8 text-left">
         <div className="flex items-center gap-3 mb-3">
-          <MapPin className="w-5 h-5 text-rose-500 flex-shrink-0" />
+          <MapPin className="w-5 h-5 text-rose-500 shrink-0" />
           <span className="text-slate-700 font-medium">{destinationNames || 'No destination set'}</span>
         </div>
         <div className="flex items-center gap-3 mb-3">
-          <Calendar className="w-5 h-5 text-rose-500 flex-shrink-0" />
+          <Calendar className="w-5 h-5 text-rose-500 shrink-0" />
           <span className="text-slate-700 font-medium">
             {new Date(groupInfo.date_start).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - {new Date(groupInfo.date_end).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
           </span>
         </div>
         <div className="flex items-center gap-3">
-          <Users className="w-5 h-5 text-rose-500 flex-shrink-0" />
+          <Users className="w-5 h-5 text-rose-500 shrink-0" />
           <span className="text-slate-700 font-medium">
             {groupInfo.adults} adults
             {groupInfo.children > 0 && `, ${groupInfo.children} children`}
@@ -203,7 +203,7 @@ function JoinGroupContent() {
           placeholder="Enter your name"
           className="w-full rounded-xl border-0 bg-slate-50 p-4 text-slate-900 ring-1 ring-inset ring-slate-200 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-rose-500"
         />
-        
+
         <button
           onClick={handleJoin}
           disabled={isJoining}

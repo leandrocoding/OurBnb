@@ -1,9 +1,28 @@
 "use client";
 
-import { useState } from 'react';
-import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
+import { useState, useEffect } from 'react';
+import { motion, useMotionValue, useTransform } from 'framer-motion';
 import { Listing, VoteValue, VOTE_VETO, VOTE_OK, VOTE_LOVE, OtherVote, voteNumberToType } from '../types';
 import { X, ThumbsUp, Heart, Star, ChevronLeft, ChevronRight, MapPin, ExternalLink } from 'lucide-react';
+
+// Preload a single image and return a promise
+function preloadImage(src: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve();
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+// Preload multiple images in sequence (left to right)
+export function preloadImages(images: string[]): void {
+  images.forEach((src) => {
+    preloadImage(src).catch(() => {
+      // Silently fail for individual images
+    });
+  });
+}
 
 interface VotingCardProps {
   listing: Listing;
@@ -15,6 +34,13 @@ interface VotingCardProps {
 
 export function VotingCard({ listing, onVote, otherVotes = [], location, isBackground = false }: VotingCardProps) {
   const [imageIndex, setImageIndex] = useState(0);
+  
+  // Preload all images for this listing when it mounts
+  useEffect(() => {
+    if (listing.images.length > 0) {
+      preloadImages(listing.images);
+    }
+  }, [listing.images]);
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-200, 200], [-10, 10]);
   const opacity = useTransform(x, [-200, -150, 0, 150, 200], [0, 1, 1, 1, 0]);
@@ -128,24 +154,13 @@ export function VotingCard({ listing, onVote, otherVotes = [], location, isBackg
 
       {/* Image Carousel */}
       <div className="relative h-3/5 w-full bg-slate-200 group">
-        <AnimatePresence mode='wait'>
-            <motion.div 
-                key={imageIndex}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="relative w-full h-full"
-            >
-                {listing.images[imageIndex] && (
-                    <img 
-                        src={listing.images[imageIndex]} 
-                        alt={`${listing.title} image ${imageIndex + 1}`}
-                        className="absolute inset-0 w-full h-full object-cover"
-                    />
-                )}
-            </motion.div>
-        </AnimatePresence>
+        {listing.images[imageIndex] && (
+            <img 
+                src={listing.images[imageIndex]} 
+                alt={`${listing.title} image ${imageIndex + 1}`}
+                className="absolute inset-0 w-full h-full object-cover"
+            />
+        )}
         
         {/* Navigation Overlays */}
         {listing.images.length > 1 && (
