@@ -1,31 +1,34 @@
-FROM python:3.13-slim as base
+FROM python:3.12-slim AS base
 
 ########################
 # Install Dependencies #
 ########################
 
-# Copy requirements.txt to container
-COPY requirements.txt /tmp/requirements.txt
+WORKDIR /app
 
-# Upgrade pip and install Python requirements
-RUN pip3 install --upgrade pip ; \
-    pip3 install --no-cache -r /tmp/requirements.txt
+# Install uv for faster package management
+RUN pip install uv
+
+# Copy dependency files
+COPY pyproject.toml ./
+
+# Install dependencies
+RUN uv pip install --system -e .
 
 
 ###########
 # Workdir #
 ###########
 
-# Set workdir to app
-WORKDIR /usr/src/app
-ENV PYTHONPATH "${PYTHONPATH}:/usr/src/app"
+WORKDIR /app/src
+ENV PYTHONPATH="${PYTHONPATH}:/app/src"
 
 
 ##############################
 # Define Default Dev Command #
 ##############################
 
-CMD ["uvicorn", "main:app", "--reload", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "main:app", "--reload", "--host", "0.0.0.0", "--port", "8081"]
 
 
 FROM base AS production
@@ -34,8 +37,8 @@ FROM base AS production
 # Copy Data #
 #############
 
-# Copy app to container
-COPY ./src /usr/src/app
+# Copy app source to container
+COPY ./src /app/src
 
 
 ##########
@@ -43,12 +46,12 @@ COPY ./src /usr/src/app
 ##########
 
 # Check content of app folder
-RUN ls -la /usr/src/app
+RUN ls -la /app/src
+RUN ls -la /app/src/scraper
 
 
 #####################################
 # Define Default Production Command #
 #####################################
 
-# Start FastAPI server with Uvicorn in production mode.
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8081"]

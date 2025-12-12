@@ -80,6 +80,21 @@ services:
       redis:
         condition: service_started
 
+  microservice:
+    container_name: ourbnb_microservice
+    build:
+      context: ./microservice/
+      dockerfile: ./Dockerfile
+      target: production
+    ports:
+      - "8081:8081"
+    environment:
+      CORS_ORIGINS: "http://localhost:3000,http://127.0.0.1:3000"
+      PROXY_URLS: ${PROXY_URLS}
+      # Proxy configuration (optional - comma-separated list of proxy URLs)
+      # Include username:password in URL for authentication: http://user:pass@host:port
+      # PROXY_URLS: "http://user:pass@proxy1:8888,http://user:pass@proxy2:8888"
+
   db: 
     container_name: ourbnb_db
     image: postgres:18.1
