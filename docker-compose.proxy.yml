@@ -1,0 +1,11 @@
+services:
+  tinyproxy:
+    image: kalaksi/tinyproxy:latest
+    restart: unless-stopped
+    ports:
+      - "8888:8888"
+    environment:
+      - ALLOWED_NETWORKS=0.0.0.0/0
+      - AUTH_USER=${AUTH_USER}
+      - AUTH_PASSWORD=${AUTH_PASSWORD}
+      - DISABLE_VIA_HEADER=yes
