@@ -110,15 +110,15 @@ def update_filter_request_progress(user_id: int, destination_id: int, pages_fetc
             )
 
 
-def insert_bnb(bnb_data: dict) -> str:
-    """Insert or update a bnb in the database. Returns the airbnb_id."""
+def insert_bnb(bnb_data: dict) -> tuple[str, int]:
+    """Insert or update a bnb in the database. Returns (airbnb_id, group_id)."""
     with get_cursor() as cursor:
         cursor.execute(
             """
             INSERT INTO bnbs (airbnb_id, group_id, destination_id, title, price_per_night, bnb_rating, 
                               bnb_review_count, main_image_url, min_bedrooms, min_beds, min_bathrooms, property_type)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (airbnb_id) DO UPDATE SET
+            ON CONFLICT (airbnb_id, group_id) DO UPDATE SET
                 title = EXCLUDED.title,
                 price_per_night = EXCLUDED.price_per_night,
                 bnb_rating = EXCLUDED.bnb_rating,
@@ -128,7 +128,7 @@ def insert_bnb(bnb_data: dict) -> str:
                 min_beds = GREATEST(bnbs.min_beds, EXCLUDED.min_beds),
                 min_bathrooms = GREATEST(bnbs.min_bathrooms, EXCLUDED.min_bathrooms),
                 property_type = COALESCE(bnbs.property_type, EXCLUDED.property_type)
-            RETURNING airbnb_id
+            RETURNING airbnb_id, group_id
             """,
             (
                 bnb_data.get("airbnb_id"),
@@ -145,10 +145,11 @@ def insert_bnb(bnb_data: dict) -> str:
                 bnb_data.get("property_type"),
             ),
         )
-        return cursor.fetchone()["airbnb_id"]
+        result = cursor.fetchone()
+        return result["airbnb_id"], result["group_id"]
 
 
-def insert_bnb_images(airbnb_id: str, image_urls: list):
+def insert_bnb_images(airbnb_id: str, group_id: int, image_urls: list):
     """Insert additional images for a bnb."""
     if not image_urls:
         return
@@ -157,15 +158,15 @@ def insert_bnb_images(airbnb_id: str, image_urls: list):
         for image_url in image_urls:
             cursor.execute(
                 """
-                INSERT INTO bnb_images (airbnb_id, image_url)
-                VALUES (%s, %s)
-                ON CONFLICT (airbnb_id, image_url) DO NOTHING
+                INSERT INTO bnb_images (airbnb_id, group_id, image_url)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (airbnb_id, group_id, image_url) DO NOTHING
                 """,
-                (airbnb_id, image_url),
+                (airbnb_id, group_id, image_url),
             )
 
 
-def insert_bnb_amenities(airbnb_id: str, amenity_ids: list):
+def insert_bnb_amenities(airbnb_id: str, group_id: int, amenity_ids: list):
     """Insert amenities for a bnb."""
     if not amenity_ids:
         return
@@ -174,9 +175,9 @@ def insert_bnb_amenities(airbnb_id: str, amenity_ids: list):
         for amenity_id in amenity_ids:
             cursor.execute(
                 """
-                INSERT INTO bnb_amenities (airbnb_id, amenity_id)
-                VALUES (%s, %s)
-                ON CONFLICT (airbnb_id, amenity_id) DO NOTHING
+                INSERT INTO bnb_amenities (airbnb_id, group_id, amenity_id)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (airbnb_id, group_id, amenity_id) DO NOTHING
                 """,
-                (airbnb_id, amenity_id),
+                (airbnb_id, group_id, amenity_id),
             )
