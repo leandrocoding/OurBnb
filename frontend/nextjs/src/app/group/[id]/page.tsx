@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAppStore } from '../../../store/useAppStore';
 import { VotingCard, preloadImages } from '../../../components/VotingCard';
-import { getVotingQueue, submitVote, getGroupInfo, QueuedListing, GroupInfo } from '../../../lib/api';
+import { submitVote, getGroupInfo, getNextToVote, GroupInfo, NextToVoteResponse, GroupVote } from '../../../lib/api';
 import { VoteValue, Listing, OtherVote } from '../../../types';
 import { Loader2, Search, Home } from 'lucide-react';
 import { motion, useMotionValue, useTransform, animate } from 'framer-motion';
@@ -30,7 +30,7 @@ function toComponentListing(response: NextToVoteResponse): Listing | null {
 }
 
 // Convert API other_votes to OtherVote format
-function toOtherVotes(votes: NextToVoteResponse['other_votes']): OtherVote[] {
+function toOtherVotes(votes: GroupVote[]): OtherVote[] {
   return votes.map(v => ({
     userId: v.user_id,
     userName: v.user_name,
@@ -62,6 +62,8 @@ export default function GroupPage() {
   const [isVoting, setIsVoting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
+  // Vote counter to force VotingCard re-mount after each vote (resets isAnimating state)
+  const [voteCount, setVoteCount] = useState(0);
   
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const mountedRef = useRef(true);
@@ -171,23 +173,17 @@ export default function GroupPage() {
     };
   }, [fetchData]);
 
-  // Preload images for upcoming listings in the queue
+  // Preload images for prefetched listing
   useEffect(() => {
-    if (queue.length > 0) {
-      // Preload images for the next 3 listings (excluding current which VotingCard handles)
-      const upcomingListings = queue.slice(1, 4);
-      upcomingListings.forEach((listing) => {
-        if (listing.images.length > 0) {
-          preloadImages(listing.images);
-        }
-      });
+    if (prefetchedResponse?.has_listing && prefetchedResponse.images.length > 0) {
+      preloadImages(prefetchedResponse.images);
     }
-  }, [queue]);
+  }, [prefetchedResponse]);
 
-  // Reset background card progress when queue changes (new card comes in)
+  // Reset background card progress when current listing changes
   useEffect(() => {
     bgProgress.set(0);
-  }, [queue.length, queue[0]?.airbnb_id, bgProgress]);
+  }, [currentResponse?.airbnb_id, bgProgress]);
 
   // Handle drag progress from active card - animate background card in sync
   const handleDragProgress = useCallback((progress: number) => {
@@ -227,8 +223,6 @@ export default function GroupPage() {
   const handleVote = async (vote: VoteValue) => {
     if (!currentUser || !currentResponse?.has_listing || !currentResponse.airbnb_id || isVoting) return;
 
-    const currentListing = queue[0];
-    const remainingAfterVote = queue.length - 1;
     setIsVoting(true);
 
     try {
@@ -240,9 +234,14 @@ export default function GroupPage() {
         undefined // No reason for now
       );
 
-      // If queue is getting low, fetch more before removing the item
-      if (remainingAfterVote <= 3) {
-        const newQueue = await getVotingQueue(currentUser.id, 10);
+      const nextFromVote = voteResponse.next_listing;
+      const justVotedId = currentResponse.airbnb_id;
+
+      // Move prefetched to current, or use next from vote response
+      // IMPORTANT: Only use prefetched if it's a DIFFERENT listing than what we just voted on
+      if (prefetchedResponse?.has_listing && prefetchedResponse.airbnb_id !== justVotedId) {
+        // We have a valid prefetched listing (different from voted one), use it
+        setCurrentResponse(prefetchedResponse);
         
         // Use the next_listing from vote response as the new prefetch
         // (or fetch a new one if it wasn't included/different)
@@ -283,12 +282,12 @@ export default function GroupPage() {
         const emptyResponse: NextToVoteResponse = { 
           has_listing: false, 
           total_remaining: 0, 
-          total_listings: nextFromVote?.total_listings || 0,
+          total_listings: nextFromVote?.total_listings || currentResponse.total_listings || 0,
           images: [], 
           amenities: [], 
           other_votes: [] 
         };
-        setCurrentResponse(nextFromVote || emptyResponse);
+        setCurrentResponse(emptyResponse);
         setPrefetchedResponse(null);
         
         // Check if we should wait for more
@@ -301,13 +300,10 @@ export default function GroupPage() {
             setIsWaitingForListings(true);
           }
         }
-        
-        // Set the new queue (API returns unvoted items, so this is the fresh queue)
-        setQueue(newQueue.queue);
-      } else {
-        // Just remove the voted listing from queue
-        setQueue(prev => prev.slice(1));
       }
+      
+      // Increment vote count to force VotingCard re-mount (resets isAnimating)
+      setVoteCount(prev => prev + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit vote');
     } finally {
@@ -435,12 +431,12 @@ export default function GroupPage() {
           {/* Background Card - animated via motion values */}
           {nextListing && (
             <motion.div
-              key={`bg-${nextListing.airbnb_id}`}
+              key={`bg-${nextListing.id}`}
               className="absolute inset-0"
               style={{ scale: bgScale, y: bgY }}
             >
               <VotingCard 
-                listing={toComponentListing(nextListing)}
+                listing={nextListing}
                 onVote={() => {}} // No-op for background card
                 location={location}
                 isBackground={true}
@@ -448,14 +444,14 @@ export default function GroupPage() {
             </motion.div>
           )}
           
-          {/* Active Card */}
+          {/* Active Card - include voteCount in key to force re-mount after each vote */}
           <VotingCard 
-            key={currentListing.id}
+            key={`${currentListing.id}-${voteCount}`}
             listing={currentListing}
             onVote={handleVote}
             onDragProgress={handleDragProgress}
             onVoteStart={handleVoteStart}
-            otherVotes={toOtherVotes(currentListing.other_votes)}
+            otherVotes={currentResponse?.other_votes ? toOtherVotes(currentResponse.other_votes) : []}
             location={location}
           />
         </div>
