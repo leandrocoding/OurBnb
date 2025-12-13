@@ -6,6 +6,23 @@ import { useAppStore } from '../../store/useAppStore';
 import { createGroup, joinGroup } from '../../lib/api';
 import { Calendar, MapPin, X, Plus, Users, Loader2 } from 'lucide-react';
 
+// Calculate default dates: one month from now, spanning one week
+function getDefaultDates() {
+  const today = new Date();
+  const startDate = new Date(today);
+  startDate.setMonth(startDate.getMonth() + 1);
+  
+  const endDate = new Date(startDate);
+  endDate.setDate(endDate.getDate() + 7);
+  
+  return {
+    start: startDate.toISOString().split('T')[0],
+    end: endDate.toISOString().split('T')[0],
+  };
+}
+
+const defaultDates = getDefaultDates();
+
 export default function CreateGroupPage() {
   const router = useRouter();
   const setCurrentUser = useAppStore((state) => state.setCurrentUser);
@@ -13,8 +30,8 @@ export default function CreateGroupPage() {
   const [groupName, setGroupName] = useState('Summer 2025');
   const [destinations, setDestinations] = useState<string[]>(['Mallorca, ES']);
   const [newDestination, setNewDestination] = useState('');
-  const [startDate, setStartDate] = useState('2025-07-15');
-  const [endDate, setEndDate] = useState('2025-07-22');
+  const [startDate, setStartDate] = useState(defaultDates.start);
+  const [endDate, setEndDate] = useState(defaultDates.end);
   const [userName, setUserName] = useState('');
   const [adults, setAdults] = useState(2);
   const [children, setChildren] = useState(0);
