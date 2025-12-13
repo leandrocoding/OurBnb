@@ -33,7 +33,7 @@ services:
       - ./backend/http:/http
       - ./backend/src:/usr/src/app
     expose:
-      - "8080:8080"
+      - "8080"
     environment:
       PG_HOST: db
       PG_PORT: 5432
