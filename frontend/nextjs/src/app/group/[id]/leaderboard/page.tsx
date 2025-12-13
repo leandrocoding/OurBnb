@@ -156,14 +156,6 @@ export default function LeaderboardPage() {
     fetchLeaderboard();
   };
 
-  // Calculate match percentage from score (simplified visualization)
-  const getMatchPercent = (entry: LeaderboardEntry) => {
-    // Score-based percentage, clamped between 0-100
-    const baseScore = 50;
-    const percent = Math.min(100, Math.max(0, baseScore + (entry.score * 2)));
-    return Math.round(percent);
-  };
-
   if (!isHydrated || (isLoading && leaderboard.length === 0)) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -181,7 +173,7 @@ export default function LeaderboardPage() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="font-bold text-slate-900 text-xl">Top Picks</h1>
-            <p className="mt-1 text-sm text-slate-500">Based on Group Happiness Score</p>
+            <p className="mt-1 text-sm text-slate-500">Ranked by votes & filter matches</p>
           </div>
           <div className="flex items-center gap-3">
             {/* Connection status */}
@@ -260,11 +252,11 @@ export default function LeaderboardPage() {
                 </div>
               </div>
               
-              <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0">
                 <div className="flex justify-between items-start">
                   <h3 className="font-bold text-slate-900 truncate pr-2">{entry.title}</h3>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="font-bold text-green-600">{getMatchPercent(entry)}%</span>
+                    <span className="font-bold text-green-600">{entry.score} pts</span>
                     <ExternalLink className="w-4 h-4 text-slate-400" />
                   </div>
                 </div>
