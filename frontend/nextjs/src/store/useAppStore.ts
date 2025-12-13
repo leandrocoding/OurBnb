@@ -21,15 +21,11 @@ interface AppState {
   // Hydration state - true once localStorage has been loaded
   isHydrated: boolean;
   
-  // Flag to indicate queue should be refreshed (e.g., after filter change)
-  shouldRefreshQueue: boolean;
-  
   // Actions
   setCurrentUser: (user: StoredUser | null) => void;
   setFilters: (filters: Filters) => void;
   clearUser: () => void;
   hydrate: () => void;
-  setShouldRefreshQueue: (value: boolean) => void;
 }
 
 const STORAGE_KEY = 'airbnb-group-storage';
@@ -66,7 +62,6 @@ export const useAppStore = create<AppState>()((set: SetState, get: GetState) => 
     amenities: [],
   },
   isHydrated: false,
-  shouldRefreshQueue: false,
 
   setCurrentUser: (user: StoredUser | null) => {
     set({ currentUser: user });
@@ -94,10 +89,6 @@ export const useAppStore = create<AppState>()((set: SetState, get: GetState) => 
     } else {
       set({ isHydrated: true });
     }
-  },
-  
-  setShouldRefreshQueue: (value: boolean) => {
-    set({ shouldRefreshQueue: value });
   },
 }));
 

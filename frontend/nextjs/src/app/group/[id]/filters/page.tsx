@@ -12,7 +12,7 @@ import 'rc-slider/assets/index.css';
 export default function FiltersPage() {
   const { id } = useParams();
   const router = useRouter();
-  const { currentUser, isHydrated, setShouldRefreshQueue } = useAppStore();
+  const { currentUser, isHydrated } = useAppStore();
 
   const [priceMin, setPriceMin] = useState(0);
   const [priceMax, setPriceMax] = useState(1000);
@@ -106,9 +106,6 @@ export default function FiltersPage() {
         property_type: roomType,
         amenities: selectedAmenities,
       });
-
-      // Signal that the voting queue should be refreshed
-      setShouldRefreshQueue(true);
       
       setSaveSuccess(true);
       setTimeout(() => {
