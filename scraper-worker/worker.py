@@ -74,16 +74,19 @@ def import_listings(result_json : str, user_id, user_filter, group_id, destinati
         }
         
         try:
-            airbnb_id = insert_bnb(bnb_data)
+            # insert_bnb now returns (airbnb_id, group_id) tuple for composite PK
+            airbnb_id, returned_group_id = insert_bnb(bnb_data)
             
             # Insert additional images (skip first one as it's main_image_url)
+            # Now requires group_id for composite key
             extra_images = listing.get("images", [])[1:]
             if extra_images:
-                insert_bnb_images(airbnb_id, extra_images)
+                insert_bnb_images(airbnb_id, group_id, extra_images)
             
             # Insert filter amenities (since the search matched, the bnb must have these)
+            # Now requires group_id for composite key
             if filter_amenities:
-                insert_bnb_amenities(airbnb_id, filter_amenities)
+                insert_bnb_amenities(airbnb_id, group_id, filter_amenities)
             
             bnbs_inserted += 1
         except Exception as e:

@@ -4,17 +4,12 @@ PAGE_COUNT_AFTER_FILTER_SET = 4
 LEADERBOARD_LIMIT = 20
 
 # =============================================================================
-# LEADERBOARD SCORING CONFIGURATION
+# SCORING CONFIGURATION
 # =============================================================================
-# Scoring values are now stored in the database 'scoring_config' table.
-# This allows changing scores without code deployment.
-# 
-# To update scoring values, run SQL like:
-#   UPDATE scoring_config SET value = 50 WHERE key = 'vote_love';
-#
-# Default values (set in init.sql):
-#   filter_match: 10 points per user filter match
-#   vote_veto: -500 points
-#   vote_ok: 10 points  
-#   vote_love: 40 points
-#   vote_super_love: 60 points
+# Scoring weights are now defined in scoring.py for easier testing and modification.
+# See scoring.py for the actual values:
+#   SCORE_FILTER_MATCH = 10 points per user filter match
+#   SCORE_VOTE_VETO = -500 points
+#   SCORE_VOTE_OK = 10 points  
+#   SCORE_VOTE_LOVE = 40 points
+#   SCORE_VOTE_SUPER_LOVE = 60 points
