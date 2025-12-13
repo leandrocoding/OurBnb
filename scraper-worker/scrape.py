@@ -1,13 +1,11 @@
 import requests
 import json
-import re
 import base64
 import time
 from datetime import datetime
 from bs4 import BeautifulSoup
-from urllib.parse import quote
 from enum import IntEnum, Enum
-from typing import Callable, Literal
+from typing import Callable
 
 class Amenities(IntEnum):
     WIFI = 4
@@ -149,8 +147,8 @@ def parse_airbnb_response(html_content):
 
     script_tag = soup.find('script', {'id': 'data-deferred-state-0'})
     if not script_tag:
-        with open("script_not_found.html", "w") as f:
-            f.write(html_content)
+        #with open("script_not_found.html", "w") as f:
+        #    f.write(html_content)
         return {"error": "Could not find data state script tag (data-deferred-state-0)., see script_not_found.html"}, None
 
     try:
@@ -193,7 +191,7 @@ def parse_airbnb_response(html_content):
             try:
                 decoded_str = base64.b64decode(encoded_id).decode('utf-8')
                 listing_id = decoded_str.split(':')[-1]
-            except:
+            except Exception:
                 listing_id = encoded_id
 
         # Basic Info
@@ -238,6 +236,66 @@ def parse_airbnb_response(html_content):
         })
 
     return listings, next_cursor
+def find_price_range_for_search(location, adults, children, infants, pets, checkin, checkout,min_price=None, max_price=None, amenities=None, min_bedrooms=None, min_beds=None, min_bathrooms=None):
+    #passing roomtype breaks airbnb for some reason
+    url_path, params = build_airbnb_url(location, adults, children, infants, pets, checkin, checkout, price_min=min_price, price_max=max_price, amenities=amenities, room_type=None, min_bedrooms=min_bedrooms, min_beds=min_beds, min_bathrooms=min_bathrooms)
+
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "de-CH,de;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Sec-GPC": "1",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Alt-Used": "www.airbnb.ch",
+        "Priority": "u=0, i"
+    }
+    try:
+        response = requests.get(url_path, params=params, headers=headers)
+        print(response.url)
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        # The price range data is in data-deferred-state-0, NOT data-injector-instances
+        script_tag = soup.find('script', {'id': 'data-deferred-state-0'})
+        if not script_tag:
+            return (0, 1000)
+
+        try:
+            data = json.loads(script_tag.text)
+        except json.JSONDecodeError:
+            print("Failed to decode JSON data for price range.")
+            return (0, 1000)
+
+        # Navigate to the price filter: niobeClientData[0][1].data.presentation.staysSearch.results.filters.filterPanel.filterPanelSections.sections[0].sectionData.discreteFilterItems[0]
+        try:
+            niobe_data = data.get('niobeClientData', [])
+            if len(niobe_data) > 0 and len(niobe_data[0]) > 1:
+                presentation = niobe_data[0][1].get('data', {}).get('presentation', {})
+                stays_search = presentation.get('staysSearch', {})
+                results = stays_search.get('results', {})
+                filters = results.get('filters', {})
+                filter_panel = filters.get('filterPanel', {})
+                sections = filter_panel.get('filterPanelSections', {}).get('sections', [])
+
+                # Find the price filter section
+                for section in sections:
+                    section_data = section.get('sectionData', {})
+                    discrete_items = section_data.get('discreteFilterItems', [])
+                    for item in discrete_items:
+                        if 'priceHistogram' in item:
+                            min_val = item.get('minValue', 0)
+                            max_val = item.get('maxValue', 1000)
+                            return (min_val, max_val)
+        except (KeyError, IndexError, TypeError) as e:
+            print(f"Error extracting price range: {e}")
+            return (0, 1000)
+    except Exception as e:
+        print(f"Request error: {e}")
+        return (0, 1000)
+    return (0, 1000)
 # TODO add support for additional search params
 def search_airbnb(location, adults, children, infants, pets, checkin, checkout, import_function : Callable[[str],int], min_price=None, max_price=None, amenities=None, room_type=None, min_bedrooms=None, min_beds=None, min_bathrooms=None, max_pages=2):
     url_path, params = build_airbnb_url(location, adults, children, infants, pets, checkin, checkout, price_min=min_price, price_max=max_price, amenities=amenities, room_type=room_type, min_bedrooms=min_bedrooms, min_beds=min_beds, min_bathrooms=min_bathrooms)
@@ -255,7 +313,6 @@ def search_airbnb(location, adults, children, infants, pets, checkin, checkout, 
         "Priority": "u=0, i"
     }
 
-    all_listings = []
     total_listing_count = 0
     current_cursor = None
 
@@ -310,19 +367,15 @@ if __name__ == "__main__":
         all_listings_data.extend(data)
 
         # Append price_text to prices.txt file
-        with open("prices.txt", "a", encoding="utf-8") as price_file:
-            for listing in data:
-                price_file.write(f"{listing.get('price_text', 'N/A')}\n")
-
         return len(data)
 
-    loc = "Tokyo"
+    loc = "New York"
     adults = 2
     children = 0
     infants = 0
     pets = 0
-    checkin = "2026-11-28"
-    checkout = "2026-11-30"
+    checkin = "2026-05-28"
+    checkout = "2026-06-30"
 
     # Example with filters
     total_count = search_airbnb(
@@ -334,12 +387,19 @@ if __name__ == "__main__":
         room_type=RoomType.ENTIRE_HOME,
         min_bedrooms=2,
         min_bathrooms=1,
-        max_pages=3
+        max_pages=1
     )
+    print(find_price_range_for_search(
+        loc, adults, children, infants, pets, checkin, checkout,
+        amenities=[Amenities.WIFI, Amenities.KITCHEN],
+        min_bedrooms=2,
+        min_bathrooms=1
+    ))
 
     # Write results to file
     with open("airbnb_results.json", "w", encoding="utf-8") as f:
         json.dump(all_listings_data, f, indent=4, ensure_ascii=False)
+        f.close()
 
     print(f"\nScraping complete. Total listings processed: {total_count}")
-    print(f"Results saved to airbnb_results.json")
+    print("Results saved to airbnb_results.json")

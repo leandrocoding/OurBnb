@@ -3,10 +3,11 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAppStore } from '../../../store/useAppStore';
-import { VotingCard } from '../../../components/VotingCard';
-import { getNextToVote, submitVote, getGroupInfo, NextToVoteResponse, GroupInfo } from '../../../lib/api';
+import { VotingCard, preloadImages } from '../../../components/VotingCard';
+import { getVotingQueue, submitVote, getGroupInfo, QueuedListing, GroupInfo } from '../../../lib/api';
 import { VoteValue, Listing, OtherVote } from '../../../types';
 import { Loader2, Search, Home } from 'lucide-react';
+import { motion, useMotionValue, useTransform, animate } from 'framer-motion';
 import Link from 'next/link';
 
 // Convert API NextToVoteResponse to component Listing format
@@ -64,6 +65,11 @@ export default function GroupPage() {
   
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const mountedRef = useRef(true);
+  
+  // Motion value for background card animation (0 = background position, 1 = foreground position)
+  const bgProgress = useMotionValue(0);
+  const bgScale = useTransform(bgProgress, [0, 1], [0.95, 1]);
+  const bgY = useTransform(bgProgress, [0, 1], [16, 0]);
 
   const groupId = typeof id === 'string' ? parseInt(id, 10) : null;
 
@@ -165,6 +171,34 @@ export default function GroupPage() {
     };
   }, [fetchData]);
 
+  // Preload images for upcoming listings in the queue
+  useEffect(() => {
+    if (queue.length > 0) {
+      // Preload images for the next 3 listings (excluding current which VotingCard handles)
+      const upcomingListings = queue.slice(1, 4);
+      upcomingListings.forEach((listing) => {
+        if (listing.images.length > 0) {
+          preloadImages(listing.images);
+        }
+      });
+    }
+  }, [queue]);
+
+  // Reset background card progress when queue changes (new card comes in)
+  useEffect(() => {
+    bgProgress.set(0);
+  }, [queue.length, queue[0]?.airbnb_id, bgProgress]);
+
+  // Handle drag progress from active card - animate background card in sync
+  const handleDragProgress = useCallback((progress: number) => {
+    bgProgress.set(progress);
+  }, [bgProgress]);
+
+  // Handle vote start - animate background card to foreground immediately
+  const handleVoteStart = useCallback(() => {
+    animate(bgProgress, 1, { duration: 0.3, ease: "easeOut" });
+  }, [bgProgress]);
+
   // Poll for listings when waiting
   useEffect(() => {
     if (!isWaitingForListings || !mountedRef.current) {
@@ -193,6 +227,8 @@ export default function GroupPage() {
   const handleVote = async (vote: VoteValue) => {
     if (!currentUser || !currentResponse?.has_listing || !currentResponse.airbnb_id || isVoting) return;
 
+    const currentListing = queue[0];
+    const remainingAfterVote = queue.length - 1;
     setIsVoting(true);
 
     try {
@@ -204,13 +240,9 @@ export default function GroupPage() {
         undefined // No reason for now
       );
 
-      // Shift the buffer: prefetched becomes current
-      // The vote response includes next_listing which we can use
-      const nextFromVote = voteResponse.next_listing;
-      
-      if (prefetchedResponse?.has_listing) {
-        // We have a prefetched listing, use it as current
-        setCurrentResponse(prefetchedResponse);
+      // If queue is getting low, fetch more before removing the item
+      if (remainingAfterVote <= 3) {
+        const newQueue = await getVotingQueue(currentUser.id, 10);
         
         // Use the next_listing from vote response as the new prefetch
         // (or fetch a new one if it wasn't included/different)
@@ -269,6 +301,12 @@ export default function GroupPage() {
             setIsWaitingForListings(true);
           }
         }
+        
+        // Set the new queue (API returns unvoted items, so this is the fresh queue)
+        setQueue(newQueue.queue);
+      } else {
+        // Just remove the voted listing from queue
+        setQueue(prev => prev.slice(1));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit vote');
@@ -394,15 +432,20 @@ export default function GroupPage() {
       {/* Main Content */}
       <main className="flex-1 flex items-center justify-center p-4 overflow-hidden relative" style={{ paddingBottom: '80px' }}>
         <div className="relative w-full max-w-md h-[65vh]">
-          {/* Background Card */}
+          {/* Background Card - animated via motion values */}
           {nextListing && (
-            <VotingCard 
-              key={`bg-${nextListing.id}`}
-              listing={nextListing}
-              onVote={() => {}} // No-op for background card
-              location={location}
-              isBackground={true}
-            />
+            <motion.div
+              key={`bg-${nextListing.airbnb_id}`}
+              className="absolute inset-0"
+              style={{ scale: bgScale, y: bgY }}
+            >
+              <VotingCard 
+                listing={toComponentListing(nextListing)}
+                onVote={() => {}} // No-op for background card
+                location={location}
+                isBackground={true}
+              />
+            </motion.div>
           )}
           
           {/* Active Card */}
@@ -410,16 +453,11 @@ export default function GroupPage() {
             key={currentListing.id}
             listing={currentListing}
             onVote={handleVote}
-            otherVotes={currentResponse ? toOtherVotes(currentResponse.other_votes) : []}
+            onDragProgress={handleDragProgress}
+            onVoteStart={handleVoteStart}
+            otherVotes={toOtherVotes(currentListing.other_votes)}
             location={location}
           />
-          
-          {/* Voting indicator */}
-          {isVoting && (
-            <div className="absolute inset-0 flex items-center justify-center bg-white/50 rounded-3xl z-50">
-              <Loader2 className="w-8 h-8 animate-spin text-rose-500" />
-            </div>
-          )}
         </div>
       </main>
     </div>
