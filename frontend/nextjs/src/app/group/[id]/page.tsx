@@ -147,7 +147,7 @@ export default function GroupPage() {
       
       // Prefetch the next listing (exclude current one)
       if (firstResponse.airbnb_id) {
-        const secondResponse = await getNextToVote(currentUser.id, firstResponse.airbnb_id);
+        const secondResponse = await getNextToVote(currentUser.id, [firstResponse.airbnb_id]);
         if (mountedRef.current) {
           setPrefetchedResponse(secondResponse.has_listing ? secondResponse : null);
         }
@@ -224,80 +224,59 @@ export default function GroupPage() {
     if (!currentUser || !currentResponse?.has_listing || !currentResponse.airbnb_id || isVoting) return;
 
     setIsVoting(true);
+    
+    // Capture IDs before state changes
+    const votedId = currentResponse.airbnb_id;
+    const nextCurrent = prefetchedResponse;
 
     try {
-      // Submit vote - the response includes the next listing
-      const voteResponse = await submitVote(
-        currentUser.id,
-        currentResponse.airbnb_id,
-        vote,
-        undefined // No reason for now
-      );
+      // Submit vote (we ignore next_listing from response - we manage our own queue)
+      await submitVote(currentUser.id, votedId, vote);
 
-      const nextFromVote = voteResponse.next_listing;
-      const justVotedId = currentResponse.airbnb_id;
-
-      // Move prefetched to current, or use next from vote response
-      // IMPORTANT: Only use prefetched if it's a DIFFERENT listing than what we just voted on
-      if (prefetchedResponse?.has_listing && prefetchedResponse.airbnb_id !== justVotedId) {
-        // We have a valid prefetched listing (different from voted one), use it
-        setCurrentResponse(prefetchedResponse);
+      // Move prefetched to current
+      if (nextCurrent?.has_listing && nextCurrent.airbnb_id) {
+        setCurrentResponse(nextCurrent);
         
-        // Use the next_listing from vote response as the new prefetch
-        // (or fetch a new one if it wasn't included/different)
-        if (nextFromVote?.has_listing && nextFromVote.airbnb_id !== prefetchedResponse.airbnb_id) {
-          setPrefetchedResponse(nextFromVote);
-        } else if (prefetchedResponse.airbnb_id) {
-          // Fetch a new prefetch in the background
-          getNextToVote(currentUser.id, prefetchedResponse.airbnb_id)
-            .then(response => {
-              if (mountedRef.current) {
-                setPrefetchedResponse(response.has_listing ? response : null);
-              }
-            })
-            .catch(() => {
-              // Silently fail prefetch errors
-              if (mountedRef.current) {
-                setPrefetchedResponse(null);
-              }
-            });
-        }
-      } else if (nextFromVote?.has_listing) {
-        // No prefetched listing, but we got one from the vote response
-        setCurrentResponse(nextFromVote);
-        setPrefetchedResponse(null);
-        
-        // Prefetch the next one
-        if (nextFromVote.airbnb_id) {
-          getNextToVote(currentUser.id, nextFromVote.airbnb_id)
-            .then(response => {
-              if (mountedRef.current) {
-                setPrefetchedResponse(response.has_listing ? response : null);
-              }
-            })
-            .catch(() => {});
-        }
+        // Fetch new prefetch in background (exclude voted ID + new current to avoid race conditions)
+        getNextToVote(currentUser.id, [votedId, nextCurrent.airbnb_id])
+          .then(response => {
+            if (mountedRef.current) {
+              setPrefetchedResponse(response.has_listing ? response : null);
+            }
+          })
+          .catch(() => {
+            if (mountedRef.current) setPrefetchedResponse(null);
+          });
       } else {
-        // No more listings available
-        const emptyResponse: NextToVoteResponse = { 
-          has_listing: false, 
-          total_remaining: 0, 
-          total_listings: nextFromVote?.total_listings || currentResponse.total_listings || 0,
-          images: [], 
-          amenities: [], 
-          other_votes: [] 
-        };
-        setCurrentResponse(emptyResponse);
-        setPrefetchedResponse(null);
-        
-        // Check if we should wait for more
-        if (nextFromVote) {
-          if (nextFromVote.total_listings === 0) {
-            // No bnbs exist yet
-            setIsWaitingForListings(true);
-          } else if (nextFromVote.total_remaining > 0 && !nextFromVote.has_listing) {
-            // Edge case: listings exist but couldn't fill buffer
-            setIsWaitingForListings(true);
+        // No prefetched card - try to fetch a new current (exclude voted ID)
+        try {
+          const response = await getNextToVote(currentUser.id, [votedId]);
+          if (mountedRef.current) {
+            if (response.has_listing) {
+              setCurrentResponse(response);
+              // Fetch prefetch for the new current (exclude voted ID + new current)
+              if (response.airbnb_id) {
+                getNextToVote(currentUser.id, [votedId, response.airbnb_id])
+                  .then(prefetchResponse => {
+                    if (mountedRef.current) {
+                      setPrefetchedResponse(prefetchResponse.has_listing ? prefetchResponse : null);
+                    }
+                  })
+                  .catch(() => {});
+              }
+            } else {
+              // No more listings
+              setCurrentResponse(response);
+              setPrefetchedResponse(null);
+              if (response.total_listings === 0) {
+                setIsWaitingForListings(true);
+              }
+            }
+          }
+        } catch {
+          if (mountedRef.current) {
+            setCurrentResponse({ has_listing: false, total_remaining: 0, total_listings: 0, images: [], amenities: [], other_votes: [] });
+            setPrefetchedResponse(null);
           }
         }
       }

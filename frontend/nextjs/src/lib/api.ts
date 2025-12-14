@@ -334,9 +334,9 @@ export async function submitVote(
 
 export async function getNextToVote(
   userId: number,
-  excludeAirbnbId?: string
+  excludeAirbnbIds?: string[]
 ): Promise<NextToVoteResponse> {
-  const params = excludeAirbnbId ? `?exclude_airbnb_id=${excludeAirbnbId}` : '';
+  const params = excludeAirbnbIds?.length ? `?exclude_ids=${excludeAirbnbIds.join(',')}` : '';
   return fetchApi<NextToVoteResponse>(`/api/user/${userId}/next-to-vote${params}`);
 }
 
