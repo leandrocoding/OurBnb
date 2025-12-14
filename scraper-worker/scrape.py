@@ -2,10 +2,16 @@ import requests
 import json
 import base64
 import time
+import logging
 from datetime import datetime
 from bs4 import BeautifulSoup
 from enum import IntEnum, Enum
-from typing import Callable
+from typing import Callable, Optional
+
+from proxy import get_proxy_manager
+from headers import get_search_headers
+
+logger = logging.getLogger(__name__)
 
 class Amenities(IntEnum):
     WIFI = 4
@@ -240,22 +246,33 @@ def find_price_range_for_search(location, adults, children, infants, pets, check
     #passing roomtype breaks airbnb for some reason
     url_path, params = build_airbnb_url(location, adults, children, infants, pets, checkin, checkout, price_min=min_price, price_max=max_price, amenities=amenities, room_type=None, min_bedrooms=min_bedrooms, min_beds=min_beds, min_bathrooms=min_bathrooms)
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "de-CH,de;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Sec-GPC": "1",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Alt-Used": "www.airbnb.ch",
-        "Priority": "u=0, i"
-    }
+    headers = get_search_headers()
+    
+    # Get proxy for this request (may be None for direct connection)
+    proxy_manager = get_proxy_manager()
+    proxy = proxy_manager.get_healthy_proxy(strategy="random")
+    
     try:
-        response = requests.get(url_path, params=params, headers=headers)
+        response = requests.get(url_path, params=params, headers=headers, proxies=proxy, timeout=30)
         print(response.url)
         response.raise_for_status()
+    except (requests.exceptions.ProxyError, requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as e:
+        # Proxy failed - mark it and retry with direct connection
+        if proxy:
+            print(f"Proxy failed for price range request: {e}. Marking proxy as failed and retrying with direct connection.")
+            proxy_manager.mark_failed(proxy)
+            try:
+                response = requests.get(url_path, params=params, headers=headers, proxies=None, timeout=30)
+                print(response.url)
+                response.raise_for_status()
+            except Exception as retry_e:
+                print(f"Retry with direct connection also failed: {retry_e}")
+                return (0, 1000)
+        else:
+            print(f"Request error (no proxy): {e}")
+            return (0, 1000)
+    
+    try:
         soup = BeautifulSoup(response.text, 'html.parser')
 
         # The price range data is in data-deferred-state-0, NOT data-injector-instances
@@ -300,24 +317,17 @@ def find_price_range_for_search(location, adults, children, infants, pets, check
 def search_airbnb(location, adults, children, infants, pets, checkin, checkout, import_function : Callable[[str],int], min_price=None, max_price=None, amenities=None, room_type=None, min_bedrooms=None, min_beds=None, min_bathrooms=None, max_pages=2):
     url_path, params = build_airbnb_url(location, adults, children, infants, pets, checkin, checkout, price_min=min_price, price_max=max_price, amenities=amenities, room_type=room_type, min_bedrooms=min_bedrooms, min_beds=min_beds, min_bathrooms=min_bathrooms)
 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "de-CH,de;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Sec-GPC": "1",
-        "Upgrade-Insecure-Requests": "1",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Alt-Used": "www.airbnb.ch",
-        "Priority": "u=0, i"
-    }
-
     total_listing_count = 0
     current_cursor = None
+    
+    # Get proxy manager for rotating proxies
+    proxy_manager = get_proxy_manager()
 
     for page in range(1, max_pages + 1):
         print(f"--- Scraping Page {page} ---")
+        
+        # Get fresh headers for each page (randomized User-Agent)
+        headers = get_search_headers()
 
         # Prepare params for pagination
         current_params = params.copy()
@@ -325,34 +335,49 @@ def search_airbnb(location, adults, children, infants, pets, checkin, checkout, 
             current_params['pagination_search'] = 'true'
             current_params['cursor'] = current_cursor
 
+        # Get proxy for this request (may be None for direct connection)
+        proxy = proxy_manager.get_healthy_proxy(strategy="random")
+        
         try:
-            response = requests.get(url_path, params=current_params, headers=headers)
-
+            response = requests.get(url_path, params=current_params, headers=headers, proxies=proxy, timeout=30)
             response.raise_for_status()
-
-            listings, next_cursor = parse_airbnb_response(response.text)
-
-            if isinstance(listings, dict) and "error" in listings:
-                print(f"Error on page {page}: {listings['error']}")
+        except (requests.exceptions.ProxyError, requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as e:
+            # Proxy failed - mark it and retry with direct connection
+            if proxy:
+                print(f"Proxy failed on page {page}: {e}. Marking proxy as failed and retrying with direct connection.")
+                proxy_manager.mark_failed(proxy)
+                try:
+                    response = requests.get(url_path, params=current_params, headers=headers, proxies=None, timeout=30)
+                    response.raise_for_status()
+                except requests.exceptions.RequestException as retry_e:
+                    print(f"Retry with direct connection also failed on page {page}: {retry_e}")
+                    break
+            else:
+                print(f"Request error on page {page} (no proxy): {e}")
                 break
-            total_listing_count += import_function(json.dumps(listings, indent=4, ensure_ascii=False))
-            # all_listings.extend(listings)
-            print(f"Found {len(listings)} listings on page {page}.")
-
-            # Logic to stop or continue
-            if not next_cursor:
-                print("No more pages available.")
-                break
-
-            current_cursor = next_cursor
-
-            # Important: Sleep to behave like a browser and avoid blocking
-            if page < max_pages:
-                time.sleep(2)
-
         except requests.exceptions.RequestException as e:
             print(f"Request error on page {page}: {e}")
             break
+
+        listings, next_cursor = parse_airbnb_response(response.text)
+
+        if isinstance(listings, dict) and "error" in listings:
+            print(f"Error on page {page}: {listings['error']}")
+            break
+        total_listing_count += import_function(json.dumps(listings, indent=4, ensure_ascii=False))
+        # all_listings.extend(listings)
+        print(f"Found {len(listings)} listings on page {page}.")
+
+        # Logic to stop or continue
+        if not next_cursor:
+            print("No more pages available.")
+            break
+
+        current_cursor = next_cursor
+
+        # Important: Sleep to behave like a browser and avoid blocking
+        if page < max_pages:
+            time.sleep(2)
 
     return total_listing_count
 

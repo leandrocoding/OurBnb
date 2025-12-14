@@ -18,6 +18,7 @@ from db import (
     insert_bnb_images,
     insert_bnb_amenities,
 )
+from proxy import get_proxy_manager
 
 # Redis configuration from environment
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
@@ -25,6 +26,13 @@ REDIS_PORT = os.getenv("REDIS_PORT", "6379")
 REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
 
 app = Celery("airbnb_workers", broker=REDIS_URL)
+
+# Initialize proxy manager and log status
+proxy_manager = get_proxy_manager()
+if proxy_manager.has_proxies:
+    print(f"Proxy support enabled with {proxy_manager.proxy_count} proxies")
+else:
+    print("No proxies configured, using direct connection")
 
 
 def parse_rating(rating_str: str) -> tuple:
