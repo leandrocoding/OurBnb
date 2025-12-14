@@ -4,7 +4,7 @@ import time
 import re
 from random import randint
 from typing import Dict, Any
-
+from headers import get_random_delay
 from celery import Celery
 
 from scrape import search_airbnb, Amenities, RoomType
@@ -18,6 +18,7 @@ from db import (
     insert_bnb_images,
     insert_bnb_amenities,
 )
+from proxy import get_proxy_manager
 
 # Redis configuration from environment
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
@@ -25,6 +26,13 @@ REDIS_PORT = os.getenv("REDIS_PORT", "6379")
 REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}/0"
 
 app = Celery("airbnb_workers", broker=REDIS_URL)
+
+# Initialize proxy manager and log status
+proxy_manager = get_proxy_manager()
+if proxy_manager.has_proxies:
+    print(f"Proxy support enabled with {proxy_manager.proxy_count} proxies")
+else:
+    print("No proxies configured, using direct connection")
 
 
 def parse_rating(rating_str: str) -> tuple:
@@ -184,7 +192,7 @@ def search_worker(args: Dict[str, Any]):
     
     
     print(f"Done: Inserted {bnbs_inserted} bnbs for destination {location}")
-    time.sleep(randint(1, 4))
+    time.sleep(get_random_delay(1, 4))
     return f"Done: inserted {bnbs_inserted} bnbs"
 
 
@@ -193,6 +201,6 @@ def search_worker(args: Dict[str, Any]):
 def listing_worker(room_id):
     print(f"Scraping listing {room_id}")
     get_listing_data(room_id)
-    time.sleep(randint(1, 4))
+    time.sleep(get_random_delay(1, 4))
     
     return "Done"

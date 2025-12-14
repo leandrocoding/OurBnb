@@ -2,19 +2,36 @@ import requests
 from bs4 import BeautifulSoup
 import json
 
+from proxy import get_proxy_manager
+from headers import get_listing_headers
+
 def get_listing_data(room_id):
     url = f"https://www.airbnb.ch/rooms/{room_id}"
     
-    # headers are critical to avoid bot detection
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9"
-    }
+    # Get randomized headers for this request
+    headers = get_listing_headers()
+
+    # Get proxy for this request (may be None for direct connection)
+    proxy_manager = get_proxy_manager()
+    proxy = proxy_manager.get_healthy_proxy(strategy="random")
 
     try:
-        response = requests.get(url, headers=headers)
+        response = requests.get(url, headers=headers, proxies=proxy, timeout=30)
         response.raise_for_status()
-        
+    except (requests.exceptions.ProxyError, requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as e:
+        # Proxy failed - mark it and retry with direct connection
+        if proxy:
+            print(f"Proxy failed for listing {room_id}: {e}. Marking proxy as failed and retrying with direct connection.")
+            proxy_manager.mark_failed(proxy)
+            try:
+                response = requests.get(url, headers=headers, proxies=None, timeout=30)
+                response.raise_for_status()
+            except Exception as retry_e:
+                return {"error": f"Retry with direct connection also failed: {retry_e}"}
+        else:
+            return {"error": str(e)}
+
+    try:
         soup = BeautifulSoup(response.text, 'html.parser')
         
         # 1. Extract the raw JSON blob from the <script> tag
