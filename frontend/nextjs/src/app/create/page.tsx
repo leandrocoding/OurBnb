@@ -41,10 +41,10 @@ export default function CreateGroupPage() {
   const [newDestination, setNewDestination] = useState('');
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
   const [userName, setUserName] = useState('');
-  const [adults, setAdults] = useState(2);
-  const [children, setChildren] = useState(0);
-  const [infants, setInfants] = useState(0);
-  const [pets, setPets] = useState(0);
+  const [adults, setAdults] = useState<number | string>(2);
+  const [children, setChildren] = useState<number | string>(0);
+  const [infants, setInfants] = useState<number | string>(0);
+  const [pets, setPets] = useState<number | string>(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
@@ -81,10 +81,10 @@ export default function CreateGroupPage() {
         destinations: destinations,
         date_start: dateRange.start.toString(),
         date_end: dateRange.end.toString(),
-        adults,
-        children,
-        infants,
-        pets,
+        adults: Number(adults) || 1,
+        children: Number(children) || 0,
+        infants: Number(infants) || 0,
+        pets: Number(pets) || 0,
       });
 
       const groupId = groupResponse.group_id;
@@ -273,7 +273,8 @@ export default function CreateGroupPage() {
                 type="number"
                 min={1}
                 value={adults}
-                onChange={(e) => setAdults(parseInt(e.target.value) || 1)}
+                onChange={(e) => setAdults(e.target.value === '' ? '' : parseInt(e.target.value))}
+                onBlur={() => setAdults(Number(adults) || 1)}
                 className="w-full rounded-xl border-0 bg-slate-50 p-3 text-slate-900 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-rose-500"
               />
             </div>
@@ -283,7 +284,8 @@ export default function CreateGroupPage() {
                 type="number"
                 min={0}
                 value={children}
-                onChange={(e) => setChildren(parseInt(e.target.value) || 0)}
+                onChange={(e) => setChildren(e.target.value === '' ? '' : parseInt(e.target.value))}
+                onBlur={() => setChildren(Number(children) || 0)}
                 className="w-full rounded-xl border-0 bg-slate-50 p-3 text-slate-900 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-rose-500"
               />
             </div>
@@ -293,7 +295,8 @@ export default function CreateGroupPage() {
                 type="number"
                 min={0}
                 value={infants}
-                onChange={(e) => setInfants(parseInt(e.target.value) || 0)}
+                onChange={(e) => setInfants(e.target.value === '' ? '' : parseInt(e.target.value))}
+                onBlur={() => setInfants(Number(infants) || 0)}
                 className="w-full rounded-xl border-0 bg-slate-50 p-3 text-slate-900 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-rose-500"
               />
             </div>
@@ -303,7 +306,8 @@ export default function CreateGroupPage() {
                 type="number"
                 min={0}
                 value={pets}
-                onChange={(e) => setPets(parseInt(e.target.value) || 0)}
+                onChange={(e) => setPets(e.target.value === '' ? '' : parseInt(e.target.value))}
+                onBlur={() => setPets(Number(pets) || 0)}
                 className="w-full rounded-xl border-0 bg-slate-50 p-3 text-slate-900 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-rose-500"
               />
             </div>
