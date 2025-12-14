@@ -29,6 +29,8 @@ class ScoredBnb:
     """A bnb with its calculated score and vote breakdown."""
     airbnb_id: str
     group_id: int
+    destination_id: int
+    location_name: Optional[str]
     title: str
     price_per_night: int
     bnb_rating: Optional[float]
@@ -140,6 +142,8 @@ class BnbScorer:
                 SELECT
                     b.airbnb_id,
                     b.group_id,
+                    b.destination_id,
+                    d.location_name,
                     b.title,
                     b.price_per_night,
                     b.bnb_rating,
@@ -155,6 +159,7 @@ class BnbScorer:
                     COALESCE(vc.super_love_count, 0) AS super_love_count,
                     COALESCE(fm.match_count, 0) AS filter_matches
                 FROM bnbs b
+                LEFT JOIN destinations d ON d.id = b.destination_id
                 LEFT JOIN vote_counts vc ON vc.airbnb_id = b.airbnb_id AND vc.group_id = b.group_id
                 LEFT JOIN filter_matches fm ON fm.airbnb_id = b.airbnb_id AND fm.group_id = b.group_id
                 WHERE b.group_id = %s
@@ -184,6 +189,8 @@ class BnbScorer:
             scored_bnbs.append(ScoredBnb(
                 airbnb_id=row["airbnb_id"],
                 group_id=row["group_id"],
+                destination_id=row["destination_id"],
+                location_name=row["location_name"],
                 title=row["title"] or "Untitled",
                 price_per_night=row["price_per_night"] or 0,
                 bnb_rating=float(row["bnb_rating"]) if row["bnb_rating"] else None,

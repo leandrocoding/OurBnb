@@ -147,6 +147,7 @@ class NextToVoteResponse(BaseModel):
     price: Optional[int] = None
     rating: Optional[float] = None
     review_count: Optional[int] = None
+    location: Optional[str] = None
     images: List[str] = []
     bedrooms: Optional[int] = None
     beds: Optional[int] = None
@@ -191,6 +192,7 @@ class LeaderboardEntry(BaseModel):
     price: int
     rating: Optional[float] = None
     review_count: Optional[int] = None
+    location: Optional[str] = None
     images: List[str]
     bedrooms: Optional[int] = None
     beds: Optional[int] = None
@@ -399,6 +401,7 @@ class RecommendationListing(BaseModel):
     price: int
     rating: Optional[float] = None
     review_count: Optional[int] = None
+    location: Optional[str] = None
     images: List[str]
     bedrooms: Optional[int] = None
     beds: Optional[int] = None
