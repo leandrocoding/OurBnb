@@ -322,12 +322,18 @@ def search_airbnb(location, adults, children, infants, pets, checkin, checkout, 
     
     # Get proxy manager for rotating proxies
     proxy_manager = get_proxy_manager()
+    
+    # Headers and proxie should be random but should be consistent between pages.
+        # Get proxy for this request (may be None for direct connection)
+    proxy = proxy_manager.get_healthy_proxy(strategy="random")
+        # Get fresh headers for each page (randomized User-Agent)
+    headers = get_search_headers()
+
+
 
     for page in range(1, max_pages + 1):
         print(f"--- Scraping Page {page} ---")
         
-        # Get fresh headers for each page (randomized User-Agent)
-        headers = get_search_headers()
 
         # Prepare params for pagination
         current_params = params.copy()
@@ -335,8 +341,6 @@ def search_airbnb(location, adults, children, infants, pets, checkin, checkout, 
             current_params['pagination_search'] = 'true'
             current_params['cursor'] = current_cursor
 
-        # Get proxy for this request (may be None for direct connection)
-        proxy = proxy_manager.get_healthy_proxy(strategy="random")
         
         try:
             response = requests.get(url_path, params=current_params, headers=headers, proxies=proxy, timeout=30)
@@ -346,6 +350,8 @@ def search_airbnb(location, adults, children, infants, pets, checkin, checkout, 
             if proxy:
                 print(f"Proxy failed on page {page}: {e}. Marking proxy as failed and retrying with direct connection.")
                 proxy_manager.mark_failed(proxy)
+                # Don't reuse failed proxy for following pages.
+                proxy = None
                 try:
                     response = requests.get(url_path, params=current_params, headers=headers, proxies=None, timeout=30)
                     response.raise_for_status()
