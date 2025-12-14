@@ -67,3 +67,14 @@ def get_listing_headers() -> dict:
         "Upgrade-Insecure-Requests": "1",
         "Connection": "keep-alive",
     }
+
+
+
+def get_random_delay(min_seconds: float = 1.0, max_seconds: float = 4.0) -> float:
+    """
+    Get a random delay with slight bias toward the middle of the range.
+    
+    This creates more human-like timing patterns than uniform random.
+    """
+    # Use triangular distribution - more likely to be in the middle
+    return random.triangular(min_seconds, max_seconds, (min_seconds + max_seconds) / 2)

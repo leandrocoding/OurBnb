@@ -4,7 +4,7 @@ import time
 import re
 from random import randint
 from typing import Dict, Any
-
+from headers import get_random_delay
 from celery import Celery
 
 from scrape import search_airbnb, Amenities, RoomType
@@ -192,7 +192,7 @@ def search_worker(args: Dict[str, Any]):
     
     
     print(f"Done: Inserted {bnbs_inserted} bnbs for destination {location}")
-    time.sleep(randint(1, 4))
+    time.sleep(get_random_delay(1, 4))
     return f"Done: inserted {bnbs_inserted} bnbs"
 
 
@@ -201,6 +201,6 @@ def search_worker(args: Dict[str, Any]):
 def listing_worker(room_id):
     print(f"Scraping listing {room_id}")
     get_listing_data(room_id)
-    time.sleep(randint(1, 4))
+    time.sleep(get_random_delay(1, 4))
     
     return "Done"

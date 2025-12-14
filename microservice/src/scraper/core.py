@@ -212,7 +212,7 @@ def search_listings(params: SearchParams) -> dict:
         
         # Rate limiting between pages (randomized to appear more human)
         if page < params.max_pages:
-            time.sleep(get_random_delay(1.5, 4.0))
+            time.sleep(get_random_delay(1, 4.0))
     
     return {
         "success": True,

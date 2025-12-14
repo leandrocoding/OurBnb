@@ -9,7 +9,7 @@ from enum import IntEnum, Enum
 from typing import Callable, Optional
 
 from proxy import get_proxy_manager
-from headers import get_search_headers
+from headers import get_random_delay, get_search_headers
 
 logger = logging.getLogger(__name__)
 
@@ -383,7 +383,7 @@ def search_airbnb(location, adults, children, infants, pets, checkin, checkout, 
 
         # Important: Sleep to behave like a browser and avoid blocking
         if page < max_pages:
-            time.sleep(2)
+            time.sleep(get_random_delay(1.0,3.0))
 
     return total_listing_count
 

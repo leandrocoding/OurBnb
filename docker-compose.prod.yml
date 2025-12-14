@@ -74,6 +74,8 @@ services:
       PG_NAME: ${PG_NAME}
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      # This should not be (much higher) than the amount of proxies available to avoid detection
+      CELERY_CONCURRENCY: 4
       # Proxy configuration (optional - comma-separated list of proxy URLs)
       # Include username:password in URL for authentication: http://user:pass@host:port
       PROXY_URLS: ${PROXY_URLS}
