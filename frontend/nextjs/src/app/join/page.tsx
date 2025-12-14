@@ -3,8 +3,8 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useAppStore } from '../../store/useAppStore';
-import { getGroupInfo, joinGroup, GroupInfo } from '../../lib/api';
-import { Loader2, MapPin, Calendar, Users } from 'lucide-react';
+import { getGroupInfo, joinGroup, GroupInfo, UserInfo } from '../../lib/api';
+import { Loader2, MapPin, Calendar, Users, ChevronDown, ChevronUp, UserCheck } from 'lucide-react';
 
 function JoinGroupContent() {
   const router = useRouter();
@@ -19,6 +19,7 @@ function JoinGroupContent() {
   const [isJoining, setIsJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [needsGroupId, setNeedsGroupId] = useState(false);
+  const [showExistingMembers, setShowExistingMembers] = useState(false);
 
   useEffect(() => {
     const groupParam = searchParams.get('group');
@@ -59,6 +60,23 @@ function JoinGroupContent() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleJoinAsExisting = (user: UserInfo) => {
+    if (!groupId) {
+      setError('No group ID');
+      return;
+    }
+
+    // Set the user in the store and navigate to the group page
+    setCurrentUser({
+      id: user.id,
+      groupId: groupId,
+      nickname: user.nickname,
+      avatar: user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.nickname}`,
+    });
+
+    router.push(`/group/${groupId}`);
   };
 
   const handleJoin = async () => {
@@ -285,6 +303,44 @@ function JoinGroupContent() {
             'Join Group'
           )}
         </button>
+
+        {/* Existing members section */}
+        {groupInfo.users.length > 0 && (
+          <div className="mt-2">
+            <button
+              onClick={() => setShowExistingMembers(!showExistingMembers)}
+              className="flex w-full items-center justify-center gap-2 text-slate-500 hover:text-slate-700 transition-colors py-2"
+            >
+              <UserCheck className="w-4 h-4" />
+              <span className="text-sm font-medium">Already a member?</span>
+              {showExistingMembers ? (
+                <ChevronUp className="w-4 h-4" />
+              ) : (
+                <ChevronDown className="w-4 h-4" />
+              )}
+            </button>
+            
+            {showExistingMembers && (
+              <div className="mt-2 bg-slate-50 rounded-xl p-3 space-y-2">
+                <p className="text-xs text-slate-500 mb-3">Select your profile to continue:</p>
+                {groupInfo.users.map((user) => (
+                  <button
+                    key={user.id}
+                    onClick={() => handleJoinAsExisting(user)}
+                    className="flex w-full items-center gap-3 p-3 rounded-lg bg-white hover:bg-slate-100 transition-colors ring-1 ring-slate-200 hover:ring-rose-300"
+                  >
+                    <img
+                      src={user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.nickname}`}
+                      alt={user.nickname}
+                      className="w-10 h-10 rounded-full"
+                    />
+                    <span className="font-medium text-slate-700">{user.nickname}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

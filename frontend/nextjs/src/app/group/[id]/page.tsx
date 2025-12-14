@@ -27,6 +27,7 @@ function toComponentListing(response: NextToVoteResponse): Listing | null {
     beds: response.beds,
     bathrooms: response.bathrooms,
     bookingLink: response.booking_link,
+    location: response.location,
   };
 }
 
@@ -401,8 +402,6 @@ export default function GroupPage() {
     );
   }
 
-  const location = groupInfo?.destinations[0]?.name.split(',')[0] || '';
-
   return (
     <div className="flex flex-col h-full bg-slate-50">
       {/* Main Content */}
@@ -418,7 +417,7 @@ export default function GroupPage() {
               <VotingCard 
                 listing={nextListing}
                 onVote={() => {}} // No-op for background card
-                location={location}
+                location={nextListing.location}
                 isBackground={true}
               />
             </motion.div>
@@ -432,7 +431,7 @@ export default function GroupPage() {
             onDragProgress={handleDragProgress}
             onVoteStart={handleVoteStart}
             otherVotes={currentResponse?.other_votes ? toOtherVotes(currentResponse.other_votes) : []}
-            location={location}
+            location={currentListing.location}
           />
         </div>
       </main>

@@ -18,4 +18,4 @@ RUN uv pip install --system -r pyproject.toml
 COPY . .
 
 # Run celery worker
-CMD ["celery", "-A", "worker", "worker", "--loglevel=info", "-Q", "high_priority,default"]
+CMD ["celery", "-A", "worker", "worker", "--loglevel=info", "-Q", "high_priority,default", "--concurrency=${CELERY_CONCURRENCY:-4}"]

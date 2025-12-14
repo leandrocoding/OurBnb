@@ -157,6 +157,7 @@ export interface NextToVoteResponse {
   price?: number;
   rating?: number;
   review_count?: number;
+  location?: string;
   images: string[];
   bedrooms?: number;
   beds?: number;
@@ -192,6 +193,7 @@ export interface LeaderboardEntry {
   price: number;
   rating?: number;
   review_count?: number;
+  location?: string;
   images: string[];
   bedrooms?: number;
   beds?: number;

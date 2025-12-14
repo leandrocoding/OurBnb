@@ -103,6 +103,7 @@ export type Listing = {
   beds?: number;
   bathrooms?: number;
   bookingLink?: string;
+  location?: string;
 };
 
 export type Vote = {
