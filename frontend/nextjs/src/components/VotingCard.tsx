@@ -202,7 +202,7 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
 
       {/* Open on Airbnb button */}
       <a 
-        href={`https://www.airbnb.com/rooms/${listing.id}`}
+        href={listing.bookingLink || `https://www.airbnb.com/rooms/${listing.id}`}
         target="_blank"
         rel="noopener noreferrer"
         onClick={(e) => e.stopPropagation()}

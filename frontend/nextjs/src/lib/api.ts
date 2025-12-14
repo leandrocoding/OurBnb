@@ -164,6 +164,7 @@ export interface NextToVoteResponse {
   property_type?: string;
   amenities: number[];
   other_votes: GroupVote[];
+  booking_link?: string;
   has_listing: boolean;
   total_remaining: number;   // Unvoted listings for this user
   total_listings: number;    // Total listings in the group
@@ -200,6 +201,7 @@ export interface LeaderboardEntry {
   score: number;
   filter_matches: number;
   votes: LeaderboardVoteSummary;
+  booking_link: string;
 }
 
 export interface LeaderboardResponse {
@@ -334,9 +336,9 @@ export async function submitVote(
 
 export async function getNextToVote(
   userId: number,
-  excludeAirbnbId?: string
+  excludeAirbnbIds?: string[]
 ): Promise<NextToVoteResponse> {
-  const params = excludeAirbnbId ? `?exclude_airbnb_id=${excludeAirbnbId}` : '';
+  const params = excludeAirbnbIds?.length ? `?exclude_ids=${excludeAirbnbIds.join(',')}` : '';
   return fetchApi<NextToVoteResponse>(`/api/user/${userId}/next-to-vote${params}`);
 }
 

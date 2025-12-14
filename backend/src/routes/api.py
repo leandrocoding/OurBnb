@@ -183,8 +183,13 @@ def _get_other_votes_for_bnbs(cursor, group_id: int, airbnb_ids: list[str], excl
 async def get_leaderboard_data_for_ws(group_id: int) -> dict:
     """Get leaderboard data for a group (used by WebSocket)."""
     with get_cursor() as cursor:
-        cursor.execute("SELECT id FROM groups WHERE id = %s", (group_id,))
-        if not cursor.fetchone():
+        cursor.execute(
+            """SELECT id, adults, children, infants, pets, date_range_start, date_range_end 
+               FROM groups WHERE id = %s""",
+            (group_id,),
+        )
+        group = cursor.fetchone()
+        if not group:
             return {"error": "Group not found"}
         
         # Get total user count
@@ -209,6 +214,14 @@ async def get_leaderboard_data_for_ws(group_id: int) -> dict:
         airbnb_ids = [bnb.airbnb_id for bnb in scored_bnbs]
         images_by_bnb, amenities_by_bnb = _get_images_and_amenities_for_bnbs(cursor, group_id, airbnb_ids)
         
+        # Build booking link parameters from group data
+        check_in = group["date_range_start"].strftime("%Y-%m-%d")
+        check_out = group["date_range_end"].strftime("%Y-%m-%d")
+        adults = group["adults"]
+        children = group["children"]
+        infants = group["infants"]
+        pets = group["pets"]
+        
         # Build response
         entries = []
         for rank, bnb in enumerate(scored_bnbs, start=1):
@@ -219,6 +232,15 @@ async def get_leaderboard_data_for_ws(group_id: int) -> dict:
             images.extend(images_by_bnb.get(airbnb_id, []))
             if not images:
                 images = ["https://placehold.co/400x300?text=No+Image"]
+            
+            # Build Airbnb booking link
+            booking_link = f"https://www.airbnb.ch/rooms/{airbnb_id}?adults={adults}&check_in={check_in}&check_out={check_out}"
+            if children > 0:
+                booking_link += f"&children={children}"
+            if infants > 0:
+                booking_link += f"&infants={infants}"
+            if pets > 0:
+                booking_link += f"&pets={pets}"
             
             entries.append({
                 "rank": rank,
@@ -241,6 +263,7 @@ async def get_leaderboard_data_for_ws(group_id: int) -> dict:
                     "love_count": bnb.love_count,
                     "super_love_count": bnb.super_love_count,
                 },
+                "booking_link": booking_link,
             })
         
         return {
@@ -714,10 +737,16 @@ async def submit_vote(request: VoteRequest):
     )
 
 
-def _get_next_listing_for_user(cursor, user_id: int, group_id: int) -> NextToVoteResponse:
+def _get_next_listing_for_user(cursor, user_id: int, group_id: int, exclude_airbnb_ids: list[str] = None) -> NextToVoteResponse:
     """
     Get the next listing for a user using the scorer.
     Returns a fully populated NextToVoteResponse or an empty one if no listings.
+    
+    Args:
+        cursor: Database cursor
+        user_id: The user to get the next listing for
+        group_id: The group the user belongs to
+        exclude_airbnb_ids: Optional list of airbnb_ids to skip (e.g., currently displayed + prefetched cards)
     """
     # Get total listings count
     cursor.execute(
@@ -726,8 +755,25 @@ def _get_next_listing_for_user(cursor, user_id: int, group_id: int) -> NextToVot
     )
     total_listings = cursor.fetchone()["count"]
     
-    # Get scored unvoted bnbs for this user (just need the first one)
-    scored_bnbs = bnb_scorer.get_scored_bnbs(group_id, exclude_voted_by_user_id=user_id, limit=1)
+    # Get group info for booking link generation
+    cursor.execute(
+        """SELECT adults, children, infants, pets, date_range_start, date_range_end 
+           FROM groups WHERE id = %s""",
+        (group_id,),
+    )
+    group = cursor.fetchone()
+    
+    # Convert to set 
+    exclude_set = set(exclude_airbnb_ids) if exclude_airbnb_ids else set()
+    
+    # Get scored unvoted bnbs for this user (fetch enough to skip excluded ones)
+    # Fetch len(exclude_set) + 1 to ensure we have at least one non-excluded result
+    limit = len(exclude_set) + 1 if exclude_set else 1
+    scored_bnbs = bnb_scorer.get_scored_bnbs(group_id, exclude_voted_by_user_id=user_id, limit=limit)
+    
+    # Filter out excluded listings
+    if exclude_set:
+        scored_bnbs = [bnb for bnb in scored_bnbs if bnb.airbnb_id not in exclude_set]
     
     # Count total remaining
     cursor.execute(
@@ -790,6 +836,22 @@ def _get_next_listing_for_user(cursor, user_id: int, group_id: int) -> NextToVot
         for v in cursor.fetchall()
     ]
     
+    # Build booking link
+    check_in = group["date_range_start"].strftime("%Y-%m-%d")
+    check_out = group["date_range_end"].strftime("%Y-%m-%d")
+    adults = group["adults"]
+    children = group["children"]
+    infants = group["infants"]
+    pets = group["pets"]
+    
+    booking_link = f"https://www.airbnb.ch/rooms/{airbnb_id}?adults={adults}&check_in={check_in}&check_out={check_out}"
+    if children > 0:
+        booking_link += f"&children={children}"
+    if infants > 0:
+        booking_link += f"&infants={infants}"
+    if pets > 0:
+        booking_link += f"&pets={pets}"
+    
     return NextToVoteResponse(
         airbnb_id=airbnb_id,
         title=bnb.title,
@@ -803,6 +865,7 @@ def _get_next_listing_for_user(cursor, user_id: int, group_id: int) -> NextToVot
         property_type=bnb.property_type,
         amenities=amenities,
         other_votes=other_votes,
+        booking_link=booking_link,
         has_listing=True,
         total_remaining=total_remaining,
         total_listings=total_listings,
@@ -1310,13 +1373,18 @@ async def get_group_stats(group_id: int):
 # =============================================================================
 
 @router.get("/user/{user_id}/next-to-vote", response_model=NextToVoteResponse, tags=["Voting"])
-async def get_user_next_to_vote(user_id: int, exclude_airbnb_id: str = Query(default=None)):
+async def get_user_next_to_vote(
+    user_id: int, 
+    exclude_airbnb_id: str = Query(default=None, description="Single airbnb_id to exclude (deprecated, use exclude_ids)"),
+    exclude_ids: str = Query(default=None, description="Comma-separated list of airbnb_ids to exclude (e.g., current + prefetched cards)")
+):
     """
     Returns the next Airbnb listing for the user to vote on.
     
     Uses the scorer to find the highest-scored unvoted listing for the user.
     
-    - exclude_airbnb_id: Optional airbnb_id to exclude (e.g., currently displayed card)
+    - exclude_airbnb_id: Optional single airbnb_id to exclude (deprecated)
+    - exclude_ids: Comma-separated airbnb_ids to exclude (e.g., currently displayed + prefetched cards)
     """
     with get_cursor() as cursor:
         # Verify user exists and get group_id
@@ -1327,8 +1395,15 @@ async def get_user_next_to_vote(user_id: int, exclude_airbnb_id: str = Query(def
         
         group_id = user["group_id"]
         
+        # Build list of IDs to exclude
+        exclude_list = []
+        if exclude_ids:
+            exclude_list.extend(exclude_ids.split(","))
+        if exclude_airbnb_id and exclude_airbnb_id not in exclude_list:
+            exclude_list.append(exclude_airbnb_id)
+        
         # Get the next listing using the scorer
-        return _get_next_listing_for_user(cursor, user_id, group_id)
+        return _get_next_listing_for_user(cursor, user_id, group_id, exclude_list if exclude_list else None)
 
 
 @router.get("/user/{user_id}/recommendations", response_model=RecommendationsResponse, tags=["Voting"])

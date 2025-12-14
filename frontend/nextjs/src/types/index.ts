@@ -102,6 +102,7 @@ export type Listing = {
   bedrooms?: number;
   beds?: number;
   bathrooms?: number;
+  bookingLink?: string;
 };
 
 export type Vote = {

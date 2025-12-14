@@ -155,6 +155,8 @@ class NextToVoteResponse(BaseModel):
     amenities: List[int] = []
     # Other users' votes on this listing
     other_votes: List[GroupVote] = []
+    # Booking link with all parameters
+    booking_link: Optional[str] = None
     # Meta info
     has_listing: bool = False
     total_remaining: int = 0  # Unvoted listings for this user
