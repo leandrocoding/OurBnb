@@ -26,6 +26,7 @@ function toComponentListing(response: NextToVoteResponse): Listing | null {
     bedrooms: response.bedrooms,
     beds: response.beds,
     bathrooms: response.bathrooms,
+    bookingLink: response.booking_link,
   };
 }
 

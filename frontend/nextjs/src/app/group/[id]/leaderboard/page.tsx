@@ -230,7 +230,7 @@ export default function LeaderboardPage() {
           {leaderboard.map((entry) => (
             <a 
               key={entry.airbnb_id} 
-              href={`https://www.airbnb.com/rooms/${entry.airbnb_id}`}
+              href={entry.booking_link || `https://www.airbnb.com/rooms/${entry.airbnb_id}`}
               target="_blank"
               rel="noopener noreferrer"
               className="bg-white rounded-2xl p-4 shadow-sm flex gap-4 hover:shadow-md hover:scale-[1.01] transition-all cursor-pointer"
