@@ -3,31 +3,34 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAppStore } from '../../../store/useAppStore';
-import { VotingCard } from '../../../components/VotingCard';
-import { getVotingQueue, submitVote, getGroupInfo, QueuedListing, GroupInfo } from '../../../lib/api';
+import { VotingCard, preloadImages } from '../../../components/VotingCard';
+import { submitVote, getGroupInfo, getNextToVote, GroupInfo, NextToVoteResponse, GroupVote } from '../../../lib/api';
 import { VoteValue, Listing, OtherVote } from '../../../types';
 import { Loader2, Search, Home } from 'lucide-react';
+import { motion, useMotionValue, useTransform, animate } from 'framer-motion';
 import Link from 'next/link';
 
-// Convert API QueuedListing to component Listing format
-function toComponentListing(queued: QueuedListing): Listing {
+// Convert API NextToVoteResponse to component Listing format
+function toComponentListing(response: NextToVoteResponse): Listing | null {
+  if (!response.has_listing || !response.airbnb_id) return null;
+  
   return {
-    id: queued.airbnb_id,
-    title: queued.title || 'Untitled Property',
-    price: queued.price || 0,
-    rating: queued.rating,
-    reviewCount: queued.review_count,
-    images: queued.images.length > 0 ? queued.images : ['https://placehold.co/400x300?text=No+Image'],
-    amenities: queued.amenities,
-    propertyType: queued.property_type,
-    bedrooms: queued.bedrooms,
-    beds: queued.beds,
-    bathrooms: queued.bathrooms,
+    id: response.airbnb_id,
+    title: response.title || 'Untitled Property',
+    price: response.price || 0,
+    rating: response.rating,
+    reviewCount: response.review_count,
+    images: response.images.length > 0 ? response.images : ['https://placehold.co/400x300?text=No+Image'],
+    amenities: response.amenities,
+    propertyType: response.property_type,
+    bedrooms: response.bedrooms,
+    beds: response.beds,
+    bathrooms: response.bathrooms,
   };
 }
 
 // Convert API other_votes to OtherVote format
-function toOtherVotes(votes: QueuedListing['other_votes']): OtherVote[] {
+function toOtherVotes(votes: GroupVote[]): OtherVote[] {
   return votes.map(v => ({
     userId: v.user_id,
     userName: v.user_name,
@@ -49,16 +52,26 @@ export default function GroupPage() {
   const router = useRouter();
   const { currentUser, isHydrated } = useAppStore();
   
-  const [queue, setQueue] = useState<QueuedListing[]>([]);
+  // Two-card buffer: current listing being displayed and prefetched next listing
+  const [currentResponse, setCurrentResponse] = useState<NextToVoteResponse | null>(null);
+  const [prefetchedResponse, setPrefetchedResponse] = useState<NextToVoteResponse | null>(null);
+  
   const [groupInfo, setGroupInfo] = useState<GroupInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isWaitingForListings, setIsWaitingForListings] = useState(false);
   const [isVoting, setIsVoting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
+  // Vote counter to force VotingCard re-mount after each vote (resets isAnimating state)
+  const [voteCount, setVoteCount] = useState(0);
   
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const mountedRef = useRef(true);
+  
+  // Motion value for background card animation (0 = background position, 1 = foreground position)
+  const bgProgress = useMotionValue(0);
+  const bgScale = useTransform(bgProgress, [0, 1], [0.95, 1]);
+  const bgY = useTransform(bgProgress, [0, 1], [16, 0]);
 
   const groupId = typeof id === 'string' ? parseInt(id, 10) : null;
 
@@ -90,7 +103,7 @@ export default function GroupPage() {
     return () => clearInterval(interval);
   }, [isWaitingForListings]);
 
-  // Fetch queue and group info
+  // Fetch initial data: current listing, prefetched listing, and group info
   const fetchData = useCallback(async (isPolling = false) => {
     if (!currentUser || !groupId || !mountedRef.current) return;
 
@@ -100,21 +113,44 @@ export default function GroupPage() {
     setError(null);
 
     try {
-      const [queueResponse, groupResponse] = await Promise.all([
-        getVotingQueue(currentUser.id, 10),
+      // Fetch current listing and group info in parallel
+      const [firstResponse, groupResponse] = await Promise.all([
+        getNextToVote(currentUser.id),
         getGroupInfo(groupId),
       ]);
       
       if (!mountedRef.current) return;
       
-      setQueue(queueResponse.queue);
       setGroupInfo(groupResponse);
       
-      // If queue is empty and we have no listings yet, start waiting mode
-      if (queueResponse.queue.length === 0 && queueResponse.total_unvoted === 0) {
-        setIsWaitingForListings(true);
-      } else {
-        setIsWaitingForListings(false);
+      // Check if we got a listing
+      if (!firstResponse.has_listing) {
+        // No listings available - determine why
+        if (firstResponse.total_listings === 0) {
+          // No bnbs exist yet for this group (scraping in progress)
+          setIsWaitingForListings(true);
+        } else if (firstResponse.total_remaining === 0) {
+          // User has voted on all existing listings
+          setCurrentResponse(firstResponse);
+          setPrefetchedResponse(null);
+          setIsWaitingForListings(false);
+        } else {
+          // Listings exist but buffer couldn't be filled (edge case, treat as waiting)
+          setIsWaitingForListings(true);
+        }
+        setIsLoading(false);
+        return;
+      }
+      
+      setCurrentResponse(firstResponse);
+      setIsWaitingForListings(false);
+      
+      // Prefetch the next listing (exclude current one)
+      if (firstResponse.airbnb_id) {
+        const secondResponse = await getNextToVote(currentUser.id, firstResponse.airbnb_id);
+        if (mountedRef.current) {
+          setPrefetchedResponse(secondResponse.has_listing ? secondResponse : null);
+        }
       }
     } catch (err) {
       if (mountedRef.current) {
@@ -136,6 +172,28 @@ export default function GroupPage() {
       mountedRef.current = false;
     };
   }, [fetchData]);
+
+  // Preload images for prefetched listing
+  useEffect(() => {
+    if (prefetchedResponse?.has_listing && prefetchedResponse.images.length > 0) {
+      preloadImages(prefetchedResponse.images);
+    }
+  }, [prefetchedResponse]);
+
+  // Reset background card progress when current listing changes
+  useEffect(() => {
+    bgProgress.set(0);
+  }, [currentResponse?.airbnb_id, bgProgress]);
+
+  // Handle drag progress from active card - animate background card in sync
+  const handleDragProgress = useCallback((progress: number) => {
+    bgProgress.set(progress);
+  }, [bgProgress]);
+
+  // Handle vote start - animate background card to foreground immediately
+  const handleVoteStart = useCallback(() => {
+    animate(bgProgress, 1, { duration: 0.3, ease: "easeOut" });
+  }, [bgProgress]);
 
   // Poll for listings when waiting
   useEffect(() => {
@@ -163,32 +221,89 @@ export default function GroupPage() {
   }, [isWaitingForListings, fetchData]);
 
   const handleVote = async (vote: VoteValue) => {
-    if (!currentUser || queue.length === 0 || isVoting) return;
+    if (!currentUser || !currentResponse?.has_listing || !currentResponse.airbnb_id || isVoting) return;
 
-    const currentListing = queue[0];
     setIsVoting(true);
 
     try {
-      await submitVote(
+      // Submit vote - the response includes the next listing
+      const voteResponse = await submitVote(
         currentUser.id,
-        currentListing.airbnb_id,
+        currentResponse.airbnb_id,
         vote,
         undefined // No reason for now
       );
 
-      // Remove the voted listing from queue
-      setQueue(prev => prev.slice(1));
+      const nextFromVote = voteResponse.next_listing;
+      const justVotedId = currentResponse.airbnb_id;
 
-      // If queue is getting low, fetch more
-      if (queue.length <= 3) {
-        const newQueue = await getVotingQueue(currentUser.id, 10);
-        setQueue(newQueue.queue);
+      // Move prefetched to current, or use next from vote response
+      // IMPORTANT: Only use prefetched if it's a DIFFERENT listing than what we just voted on
+      if (prefetchedResponse?.has_listing && prefetchedResponse.airbnb_id !== justVotedId) {
+        // We have a valid prefetched listing (different from voted one), use it
+        setCurrentResponse(prefetchedResponse);
         
-        // Check if we need to wait for more listings
-        if (newQueue.queue.length === 0 && newQueue.total_unvoted === 0) {
-          setIsWaitingForListings(true);
+        // Use the next_listing from vote response as the new prefetch
+        // (or fetch a new one if it wasn't included/different)
+        if (nextFromVote?.has_listing && nextFromVote.airbnb_id !== prefetchedResponse.airbnb_id) {
+          setPrefetchedResponse(nextFromVote);
+        } else if (prefetchedResponse.airbnb_id) {
+          // Fetch a new prefetch in the background
+          getNextToVote(currentUser.id, prefetchedResponse.airbnb_id)
+            .then(response => {
+              if (mountedRef.current) {
+                setPrefetchedResponse(response.has_listing ? response : null);
+              }
+            })
+            .catch(() => {
+              // Silently fail prefetch errors
+              if (mountedRef.current) {
+                setPrefetchedResponse(null);
+              }
+            });
+        }
+      } else if (nextFromVote?.has_listing) {
+        // No prefetched listing, but we got one from the vote response
+        setCurrentResponse(nextFromVote);
+        setPrefetchedResponse(null);
+        
+        // Prefetch the next one
+        if (nextFromVote.airbnb_id) {
+          getNextToVote(currentUser.id, nextFromVote.airbnb_id)
+            .then(response => {
+              if (mountedRef.current) {
+                setPrefetchedResponse(response.has_listing ? response : null);
+              }
+            })
+            .catch(() => {});
+        }
+      } else {
+        // No more listings available
+        const emptyResponse: NextToVoteResponse = { 
+          has_listing: false, 
+          total_remaining: 0, 
+          total_listings: nextFromVote?.total_listings || currentResponse.total_listings || 0,
+          images: [], 
+          amenities: [], 
+          other_votes: [] 
+        };
+        setCurrentResponse(emptyResponse);
+        setPrefetchedResponse(null);
+        
+        // Check if we should wait for more
+        if (nextFromVote) {
+          if (nextFromVote.total_listings === 0) {
+            // No bnbs exist yet
+            setIsWaitingForListings(true);
+          } else if (nextFromVote.total_remaining > 0 && !nextFromVote.has_listing) {
+            // Edge case: listings exist but couldn't fill buffer
+            setIsWaitingForListings(true);
+          }
         }
       }
+      
+      // Increment vote count to force VotingCard re-mount (resets isAnimating)
+      setVoteCount(prev => prev + 1);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit vote');
     } finally {
@@ -285,8 +400,12 @@ export default function GroupPage() {
     );
   }
 
+  // Convert responses to component format
+  const currentListing = currentResponse ? toComponentListing(currentResponse) : null;
+  const nextListing = prefetchedResponse ? toComponentListing(prefetchedResponse) : null;
+
   // No listings / all caught up
-  if (queue.length === 0) {
+  if (!currentListing) {
     return (
       <div className="min-h-full flex flex-col items-center justify-center bg-slate-50 p-6 text-center">
         <div className="text-6xl mb-4">🎉</div>
@@ -302,8 +421,6 @@ export default function GroupPage() {
     );
   }
 
-  const currentListing = queue[0];
-  const nextListing = queue[1];
   const location = groupInfo?.destinations[0]?.name.split(',')[0] || '';
 
   return (
@@ -311,32 +428,32 @@ export default function GroupPage() {
       {/* Main Content */}
       <main className="flex-1 flex items-center justify-center p-4 overflow-hidden relative" style={{ paddingBottom: '80px' }}>
         <div className="relative w-full max-w-md h-[65vh]">
-          {/* Background Card */}
+          {/* Background Card - animated via motion values */}
           {nextListing && (
-            <VotingCard 
-              key={`bg-${nextListing.airbnb_id}`}
-              listing={toComponentListing(nextListing)}
-              onVote={() => {}} // No-op for background card
-              location={location}
-              isBackground={true}
-            />
+            <motion.div
+              key={`bg-${nextListing.id}`}
+              className="absolute inset-0"
+              style={{ scale: bgScale, y: bgY }}
+            >
+              <VotingCard 
+                listing={nextListing}
+                onVote={() => {}} // No-op for background card
+                location={location}
+                isBackground={true}
+              />
+            </motion.div>
           )}
           
-          {/* Active Card */}
+          {/* Active Card - include voteCount in key to force re-mount after each vote */}
           <VotingCard 
-            key={currentListing.airbnb_id}
-            listing={toComponentListing(currentListing)}
+            key={`${currentListing.id}-${voteCount}`}
+            listing={currentListing}
             onVote={handleVote}
-            otherVotes={toOtherVotes(currentListing.other_votes)}
+            onDragProgress={handleDragProgress}
+            onVoteStart={handleVoteStart}
+            otherVotes={currentResponse?.other_votes ? toOtherVotes(currentResponse.other_votes) : []}
             location={location}
           />
-          
-          {/* Voting indicator */}
-          {isVoting && (
-            <div className="absolute inset-0 flex items-center justify-center bg-white/50 rounded-3xl z-50">
-              <Loader2 className="w-8 h-8 animate-spin text-rose-500" />
-            </div>
-          )}
         </div>
       </main>
     </div>

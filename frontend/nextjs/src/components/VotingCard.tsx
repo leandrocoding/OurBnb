@@ -1,27 +1,91 @@
 "use client";
 
-import { useState } from 'react';
-import { motion, useMotionValue, useTransform, AnimatePresence } from 'framer-motion';
+import { useState, useEffect } from 'react';
+import { motion, useMotionValue, useTransform, useAnimate } from 'framer-motion';
 import { Listing, VoteValue, VOTE_VETO, VOTE_OK, VOTE_LOVE, OtherVote, voteNumberToType } from '../types';
 import { X, ThumbsUp, Heart, Star, ChevronLeft, ChevronRight, MapPin, ExternalLink } from 'lucide-react';
+
+// Preload a single image and return a promise
+function preloadImage(src: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve();
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+// Preload multiple images in sequence (left to right)
+export function preloadImages(images: string[]): void {
+  images.forEach((src) => {
+    preloadImage(src).catch(() => {
+      // Silently fail for individual images
+    });
+  });
+}
 
 interface VotingCardProps {
   listing: Listing;
   onVote: (vote: VoteValue) => void;
+  onDragProgress?: (progress: number) => void; // 0 = centered, 1 = at vote threshold
+  onVoteStart?: () => void; // Called immediately when vote animation starts
   otherVotes?: OtherVote[];
   location?: string;
   isBackground?: boolean;
 }
 
-export function VotingCard({ listing, onVote, otherVotes = [], location, isBackground = false }: VotingCardProps) {
+export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, otherVotes = [], location, isBackground = false }: VotingCardProps) {
   const [imageIndex, setImageIndex] = useState(0);
+  const [scope, animate] = useAnimate();
+  const [isAnimating, setIsAnimating] = useState(false);
+  
+  // Preload all images for this listing when it mounts
+  useEffect(() => {
+    if (listing.images.length > 0) {
+      preloadImages(listing.images);
+    }
+  }, [listing.images]);
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-200, 200], [-10, 10]);
-  const opacity = useTransform(x, [-200, -150, 0, 150, 200], [0, 1, 1, 1, 0]);
+  
+  // Track drag progress and report to parent
+  useEffect(() => {
+    if (!onDragProgress) return;
+    const unsubscribe = x.on("change", (latest) => {
+      // Use 200px drag distance for full progress (slower movement)
+      const progress = Math.min(1, Math.abs(latest) / 200);
+      onDragProgress(progress);
+    });
+    return () => unsubscribe();
+  }, [x, onDragProgress]);
   
   // Visual feedback opacities
   const nopeOpacity = useTransform(x, [-150, -20], [1, 0]);
   const likeOpacity = useTransform(x, [20, 150], [0, 1]);
+
+  // Animate card off screen and then call onVote
+  const handleVote = async (vote: VoteValue) => {
+    if (isAnimating) return;
+    setIsAnimating(true);
+    
+    // Notify parent immediately so background card can start animating
+    onVoteStart?.();
+    
+    const direction = vote === VOTE_VETO ? -1 : 1;
+    const exitX = direction * window.innerWidth;
+    const exitRotation = direction * 20;
+    
+    await animate(scope.current, {
+      x: exitX,
+      rotate: exitRotation,
+      opacity: 0,
+    }, {
+      duration: 0.3,
+      ease: "easeOut",
+    });
+    
+    onVote(vote);
+  };
 
   // Derived likes/loves (vote values: 1=ok, 2=love, 3=super_love)
   const likers = otherVotes.filter(v => v.vote >= VOTE_OK);
@@ -54,7 +118,7 @@ export function VotingCard({ listing, onVote, otherVotes = [], location, isBackg
 
   if (isBackground) {
     return (
-      <div className="absolute top-0 left-0 w-full h-full scale-[0.95] translate-y-4 opacity-50 bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col pointer-events-none z-0">
+      <div className="absolute top-0 left-0 w-full h-full bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col pointer-events-none z-0">
         <div className="relative h-3/5 w-full bg-slate-200">
            {listing.images[0] && (
              <img 
@@ -63,14 +127,47 @@ export function VotingCard({ listing, onVote, otherVotes = [], location, isBackg
                 className="absolute inset-0 w-full h-full object-cover"
              />
            )}
-           <div className="absolute bottom-0 left-0 w-full h-24 bg-gradient-to-t from-black/60 to-transparent" />
-           <div className="absolute bottom-4 left-4 text-white">
-               <h2 className="text-2xl font-bold leading-tight drop-shadow-md">{listing.title}</h2>
+           <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
+           <div className="absolute bottom-4 left-4 right-4 text-white z-20">
+               <h2 className="text-2xl font-bold leading-tight drop-shadow-md mb-1">{listing.title}</h2>
+               {location && (
+                 <div className="flex items-center gap-1 text-white/90 text-sm font-medium">
+                   <MapPin className="w-4 h-4" />
+                   {location}
+                 </div>
+               )}
            </div>
         </div>
         <div className="p-5 flex flex-col flex-1">
             <div className="flex justify-between items-end mb-2">
-                 <div className="h-8 bg-slate-100 rounded w-24"></div>
+                <div>
+                    <div className="text-3xl font-bold text-slate-900">{formatPrice(listing.price)}</div>
+                </div>
+                <div className="flex items-center gap-1 text-slate-700 font-bold text-lg">
+                    <Star className="w-5 h-5 fill-yellow-400 text-yellow-400" />
+                    {formatRating(listing.rating)}
+                    {listing.reviewCount && listing.reviewCount > 0 && (
+                      <span className="text-slate-400 font-normal text-sm">({listing.reviewCount})</span>
+                    )}
+                </div>
+            </div>
+            <div className="flex flex-wrap gap-2 mt-2 mb-4">
+                {listing.amenities.includes(4) && <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">Wifi</span>}
+                {listing.amenities.includes(7) && <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">Pool</span>}
+                {listing.bedrooms && <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">{listing.bedrooms} Bed</span>}
+                {listing.bathrooms && <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">{listing.bathrooms} Bath</span>}
+            </div>
+            
+            <div className="mt-auto flex items-center justify-center gap-6 pt-2">
+                 <div className="w-14 h-14 rounded-full bg-white border border-slate-200 shadow-lg flex items-center justify-center text-slate-400">
+                     <X className="w-6 h-6" />
+                 </div>
+                 <div className="w-14 h-14 rounded-full bg-white border border-slate-200 shadow-lg flex items-center justify-center text-yellow-500">
+                     <ThumbsUp className="w-6 h-6" />
+                 </div>
+                 <div className="w-16 h-16 rounded-full bg-rose-500 shadow-xl shadow-rose-500/30 flex items-center justify-center text-white">
+                     <Heart className="w-8 h-8 fill-current" />
+                 </div>
             </div>
         </div>
       </div>
@@ -79,12 +176,13 @@ export function VotingCard({ listing, onVote, otherVotes = [], location, isBackg
 
   return (
     <motion.div
-      style={{ x, rotate, opacity }}
+      ref={scope}
+      style={{ x, rotate }}
       drag="x"
       dragConstraints={{ left: 0, right: 0 }}
       onDragEnd={(e, { offset, velocity }) => {
-        if (offset.x > 100) onVote(VOTE_OK);
-        else if (offset.x < -100) onVote(VOTE_VETO);
+        if (offset.x > 100) handleVote(VOTE_OK);
+        else if (offset.x < -100) handleVote(VOTE_VETO);
       }}
       className="absolute top-0 left-0 w-full h-full bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col z-10"
     >
@@ -128,24 +226,13 @@ export function VotingCard({ listing, onVote, otherVotes = [], location, isBackg
 
       {/* Image Carousel */}
       <div className="relative h-3/5 w-full bg-slate-200 group">
-        <AnimatePresence mode='wait'>
-            <motion.div 
-                key={imageIndex}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.2 }}
-                className="relative w-full h-full"
-            >
-                {listing.images[imageIndex] && (
-                    <img 
-                        src={listing.images[imageIndex]} 
-                        alt={`${listing.title} image ${imageIndex + 1}`}
-                        className="absolute inset-0 w-full h-full object-cover"
-                    />
-                )}
-            </motion.div>
-        </AnimatePresence>
+        {listing.images[imageIndex] && (
+            <img 
+                src={listing.images[imageIndex]} 
+                alt={`${listing.title} image ${imageIndex + 1}`}
+                className="absolute inset-0 w-full h-full object-cover"
+            />
+        )}
         
         {/* Navigation Overlays */}
         {listing.images.length > 1 && (
@@ -213,22 +300,25 @@ export function VotingCard({ listing, onVote, otherVotes = [], location, isBackg
 
         <div className="mt-auto flex items-center justify-center gap-6 pt-2">
              <button 
-                onClick={() => onVote(VOTE_VETO)}
-                className="w-14 h-14 rounded-full bg-white border border-slate-200 shadow-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+                onClick={() => handleVote(VOTE_VETO)}
+                disabled={isAnimating}
+                className="w-14 h-14 rounded-full bg-white border border-slate-200 shadow-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
              >
                  <X className="w-6 h-6" />
              </button>
 
              <button 
-                onClick={() => onVote(VOTE_OK)}
-                className="w-14 h-14 rounded-full bg-white border border-slate-200 shadow-lg flex items-center justify-center text-yellow-500 hover:bg-yellow-50 transition-colors"
+                onClick={() => handleVote(VOTE_OK)}
+                disabled={isAnimating}
+                className="w-14 h-14 rounded-full bg-white border border-slate-200 shadow-lg flex items-center justify-center text-yellow-500 hover:bg-yellow-50 transition-colors disabled:opacity-50"
              >
                  <ThumbsUp className="w-6 h-6" />
              </button>
 
              <button 
-                onClick={() => onVote(VOTE_LOVE)}
-                className="w-16 h-16 rounded-full bg-rose-500 shadow-xl shadow-rose-500/30 flex items-center justify-center text-white hover:bg-rose-600 transition-colors"
+                onClick={() => handleVote(VOTE_LOVE)}
+                disabled={isAnimating}
+                className="w-16 h-16 rounded-full bg-rose-500 shadow-xl shadow-rose-500/30 flex items-center justify-center text-white hover:bg-rose-600 transition-colors disabled:opacity-50"
              >
                  <Heart className="w-8 h-8 fill-current" />
              </button>

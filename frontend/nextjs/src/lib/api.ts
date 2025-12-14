@@ -151,6 +151,32 @@ export interface VoteResponse {
   reason?: string;
 }
 
+export interface NextToVoteResponse {
+  airbnb_id?: string;
+  title?: string;
+  price?: number;
+  rating?: number;
+  review_count?: number;
+  images: string[];
+  bedrooms?: number;
+  beds?: number;
+  bathrooms?: number;
+  property_type?: string;
+  amenities: number[];
+  other_votes: GroupVote[];
+  has_listing: boolean;
+  total_remaining: number;   // Unvoted listings for this user
+  total_listings: number;    // Total listings in the group
+}
+
+export interface VoteWithNextResponse {
+  user_id: number;
+  airbnb_id: string;
+  vote: number;
+  reason?: string;
+  next_listing?: NextToVoteResponse;
+}
+
 export interface LeaderboardVoteSummary {
   veto_count: number;
   ok_count: number;
@@ -292,8 +318,8 @@ export async function submitVote(
   airbnbId: string,
   vote: number,
   reason?: string
-): Promise<VoteResponse> {
-  return fetchApi<VoteResponse>('/api/vote', {
+): Promise<VoteWithNextResponse> {
+  return fetchApi<VoteWithNextResponse>('/api/vote', {
     method: 'POST',
     body: JSON.stringify({
       user_id: userId,
@@ -302,6 +328,16 @@ export async function submitVote(
       reason,
     }),
   });
+}
+
+// ============ Next To Vote API ============
+
+export async function getNextToVote(
+  userId: number,
+  excludeAirbnbId?: string
+): Promise<NextToVoteResponse> {
+  const params = excludeAirbnbId ? `?exclude_airbnb_id=${excludeAirbnbId}` : '';
+  return fetchApi<NextToVoteResponse>(`/api/user/${userId}/next-to-vote${params}`);
 }
 
 // ============ Leaderboard API ============

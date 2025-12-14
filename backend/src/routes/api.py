@@ -8,6 +8,7 @@ from constants import (
     PAGE_COUNT_AFTER_FILTER_SET,
     LEADERBOARD_LIMIT,
 )
+from scoring import bnb_scorer, ScoredBnb
 from models.schemas import (
     TestData,
     CreateGroupRequest,
@@ -25,6 +26,7 @@ from models.schemas import (
     GroupListingsResponse,
     VoteRequest,
     VoteResponse,
+    VoteWithNextResponse,
     GroupVote,
     GroupVotesResponse,
     LeaderboardEntry,
@@ -40,10 +42,8 @@ from models.schemas import (
     AddDestinationRequest,
     UserVoteProgress,
     GroupStatsResponse,
-    # Voting Queue
+    # Voting Queue (kept for backward compatibility)
     NextToVoteResponse,
-    QueuedListing,
-    VotingQueueResponse,
     VoteProgressResponse,
     # Listing Detail
     ListingDetailResponse,
@@ -58,6 +58,9 @@ from models.schemas import (
     # Demo
     DemoGroupInfo,
     DemoAllGroupsResponse,
+    # Recommendations (new batch fetching)
+    RecommendationListing,
+    RecommendationsResponse,
 )
 from db import get_cursor
 from scrape_utils import trigger_search_for_user_destinations, trigger_search_job, trigger_listing_inquiry
@@ -110,6 +113,73 @@ class LeaderboardConnectionManager:
 leaderboard_manager = LeaderboardConnectionManager()
 
 
+def _get_images_and_amenities_for_bnbs(cursor, group_id: int, airbnb_ids: list[str]) -> tuple[dict, dict]:
+    """Helper to batch fetch images and amenities for a list of bnbs."""
+    images_by_bnb: dict[str, list[str]] = {aid: [] for aid in airbnb_ids}
+    amenities_by_bnb: dict[str, list[int]] = {aid: [] for aid in airbnb_ids}
+    
+    if not airbnb_ids:
+        return images_by_bnb, amenities_by_bnb
+    
+    # Fetch images (with composite key)
+    cursor.execute(
+        "SELECT airbnb_id, image_url FROM bnb_images WHERE group_id = %s AND airbnb_id = ANY(%s)",
+        (group_id, airbnb_ids),
+    )
+    for img in cursor.fetchall():
+        images_by_bnb[img["airbnb_id"]].append(img["image_url"])
+    
+    # Fetch amenities (with composite key)
+    cursor.execute(
+        "SELECT airbnb_id, amenity_id FROM bnb_amenities WHERE group_id = %s AND airbnb_id = ANY(%s)",
+        (group_id, airbnb_ids),
+    )
+    for amenity in cursor.fetchall():
+        amenities_by_bnb[amenity["airbnb_id"]].append(amenity["amenity_id"])
+    
+    return images_by_bnb, amenities_by_bnb
+
+
+def _get_other_votes_for_bnbs(cursor, group_id: int, airbnb_ids: list[str], exclude_user_id: int = None) -> dict[str, list[GroupVote]]:
+    """Helper to get other users' votes for a list of bnbs."""
+    votes_by_bnb: dict[str, list[GroupVote]] = {aid: [] for aid in airbnb_ids}
+    
+    if not airbnb_ids:
+        return votes_by_bnb
+    
+    if exclude_user_id is not None:
+        cursor.execute(
+            """
+            SELECT v.airbnb_id, v.user_id, u.nickname as user_name, v.vote, v.reason
+            FROM votes v
+            JOIN users u ON u.id = v.user_id
+            WHERE v.group_id = %s AND v.airbnb_id = ANY(%s) AND v.user_id != %s
+            """,
+            (group_id, airbnb_ids, exclude_user_id),
+        )
+    else:
+        cursor.execute(
+            """
+            SELECT v.airbnb_id, v.user_id, u.nickname as user_name, v.vote, v.reason
+            FROM votes v
+            JOIN users u ON u.id = v.user_id
+            WHERE v.group_id = %s AND v.airbnb_id = ANY(%s)
+            """,
+            (group_id, airbnb_ids),
+        )
+    
+    for v in cursor.fetchall():
+        votes_by_bnb[v["airbnb_id"]].append(GroupVote(
+            user_id=v["user_id"],
+            user_name=v["user_name"],
+            airbnb_id=v["airbnb_id"],
+            vote=v["vote"],
+            reason=v["reason"],
+        ))
+    
+    return votes_by_bnb
+
+
 async def get_leaderboard_data_for_ws(group_id: int) -> dict:
     """Get leaderboard data for a group (used by WebSocket)."""
     with get_cursor() as cursor:
@@ -125,23 +195,10 @@ async def get_leaderboard_data_for_ws(group_id: int) -> dict:
         cursor.execute("SELECT COUNT(*) as count FROM bnbs WHERE group_id = %s", (group_id,))
         total_listings = cursor.fetchone()["count"]
         
-        # Get leaderboard from view
-        cursor.execute(
-            """
-            SELECT 
-                airbnb_id, title, price_per_night, bnb_rating, bnb_review_count,
-                min_bedrooms, min_beds, min_bathrooms, property_type, main_image_url,
-                score, filter_matches, veto_count, ok_count, love_count, super_love_count
-            FROM leaderboard_scores
-            WHERE group_id = %s
-            ORDER BY score DESC
-            LIMIT %s
-            """,
-            (group_id, LEADERBOARD_LIMIT),
-        )
-        rows = cursor.fetchall()
+        # Get scored bnbs using the scorer
+        scored_bnbs = bnb_scorer.get_scored_bnbs(group_id, limit=LEADERBOARD_LIMIT)
         
-        if not rows:
+        if not scored_bnbs:
             return {
                 "entries": [],
                 "total_listings": total_listings,
@@ -149,31 +206,16 @@ async def get_leaderboard_data_for_ws(group_id: int) -> dict:
             }
         
         # Batch fetch images and amenities
-        airbnb_ids = [r["airbnb_id"] for r in rows]
-        
-        images_by_bnb: dict[str, list[str]] = {aid: [] for aid in airbnb_ids}
-        cursor.execute(
-            "SELECT airbnb_id, image_url FROM bnb_images WHERE airbnb_id = ANY(%s)",
-            (airbnb_ids,),
-        )
-        for img in cursor.fetchall():
-            images_by_bnb[img["airbnb_id"]].append(img["image_url"])
-        
-        amenities_by_bnb: dict[str, list[int]] = {aid: [] for aid in airbnb_ids}
-        cursor.execute(
-            "SELECT airbnb_id, amenity_id FROM bnb_amenities WHERE airbnb_id = ANY(%s)",
-            (airbnb_ids,),
-        )
-        for amenity in cursor.fetchall():
-            amenities_by_bnb[amenity["airbnb_id"]].append(amenity["amenity_id"])
+        airbnb_ids = [bnb.airbnb_id for bnb in scored_bnbs]
+        images_by_bnb, amenities_by_bnb = _get_images_and_amenities_for_bnbs(cursor, group_id, airbnb_ids)
         
         # Build response
         entries = []
-        for rank, row in enumerate(rows, start=1):
-            airbnb_id = row["airbnb_id"]
+        for rank, bnb in enumerate(scored_bnbs, start=1):
+            airbnb_id = bnb.airbnb_id
             images = []
-            if row["main_image_url"]:
-                images.append(row["main_image_url"])
+            if bnb.main_image_url:
+                images.append(bnb.main_image_url)
             images.extend(images_by_bnb.get(airbnb_id, []))
             if not images:
                 images = ["https://placehold.co/400x300?text=No+Image"]
@@ -181,23 +223,23 @@ async def get_leaderboard_data_for_ws(group_id: int) -> dict:
             entries.append({
                 "rank": rank,
                 "airbnb_id": airbnb_id,
-                "title": row["title"] or "Untitled",
-                "price": row["price_per_night"] or 0,
-                "rating": float(row["bnb_rating"]) if row["bnb_rating"] else None,
-                "review_count": row["bnb_review_count"],
+                "title": bnb.title,
+                "price": bnb.price_per_night,
+                "rating": bnb.bnb_rating,
+                "review_count": bnb.bnb_review_count,
                 "images": images,
-                "bedrooms": row["min_bedrooms"],
-                "beds": row["min_beds"],
-                "bathrooms": row["min_bathrooms"],
-                "property_type": row["property_type"],
+                "bedrooms": bnb.min_bedrooms,
+                "beds": bnb.min_beds,
+                "bathrooms": bnb.min_bathrooms,
+                "property_type": bnb.property_type,
                 "amenities": amenities_by_bnb.get(airbnb_id, []),
-                "score": row["score"],
-                "filter_matches": row["filter_matches"],
+                "score": bnb.score,
+                "filter_matches": bnb.filter_matches,
                 "votes": {
-                    "veto_count": row["veto_count"],
-                    "ok_count": row["ok_count"],
-                    "love_count": row["love_count"],
-                    "super_love_count": row["super_love_count"],
+                    "veto_count": bnb.veto_count,
+                    "ok_count": bnb.ok_count,
+                    "love_count": bnb.love_count,
+                    "super_love_count": bnb.super_love_count,
                 },
             })
         
@@ -574,30 +616,25 @@ async def get_group_listings(group_id: int):
         )
         bnbs = cursor.fetchall()
         
+        if not bnbs:
+            return GroupListingsResponse(listings=[])
+        
+        # Batch fetch images and amenities
+        airbnb_ids = [bnb["airbnb_id"] for bnb in bnbs]
+        images_by_bnb, amenities_by_bnb = _get_images_and_amenities_for_bnbs(cursor, group_id, airbnb_ids)
+        
         listings = []
         for bnb in bnbs:
-            # Get additional images for this bnb
-            cursor.execute(
-                "SELECT image_url FROM bnb_images WHERE airbnb_id = %s",
-                (bnb["airbnb_id"],),
-            )
-            extra_images = cursor.fetchall()
-            
-            # Get amenities for this bnb
-            cursor.execute(
-                "SELECT amenity_id FROM bnb_amenities WHERE airbnb_id = %s",
-                (bnb["airbnb_id"],),
-            )
-            amenities = cursor.fetchall()
+            airbnb_id = bnb["airbnb_id"]
             
             # Build images list (main image first, then extras)
             images = []
             if bnb["main_image_url"]:
                 images.append(bnb["main_image_url"])
-            images.extend([img["image_url"] for img in extra_images])
+            images.extend(images_by_bnb.get(airbnb_id, []))
             
             listings.append(PropertyInfo(
-                id=bnb["airbnb_id"],
+                id=airbnb_id,
                 title=bnb["title"] or "Untitled Property",
                 price=bnb["price_per_night"] or 0,
                 rating=float(bnb["bnb_rating"]) if bnb["bnb_rating"] else None,
@@ -607,16 +644,27 @@ async def get_group_listings(group_id: int):
                 beds=bnb["min_beds"],
                 bathrooms=bnb["min_bathrooms"],
                 property_type=bnb["property_type"],
-                amenities=[a["amenity_id"] for a in amenities],
+                amenities=amenities_by_bnb.get(airbnb_id, []),
             ))
     
     return GroupListingsResponse(listings=listings)
 
 
-@router.post("/vote", response_model=VoteResponse, tags=["Voting"])
+@router.post("/vote", response_model=VoteWithNextResponse, tags=["Voting"])
 async def submit_vote(request: VoteRequest):
-    """Submit a vote for a bnb."""
+    """
+    Submit a vote for a bnb and get the next listing to vote on.
+    
+    This endpoint:
+    1. Records the vote
+    2. Uses the scorer to get the next recommended listing
+    3. Returns the vote confirmation along with the next listing
+    
+    This allows single round-trip voting with instant next-card display.
+    """
     group_id = None
+    next_listing = None
+    
     with get_cursor() as cursor:
         # Verify user exists
         cursor.execute("SELECT id, group_id FROM users WHERE id = %s", (request.user_id,))
@@ -626,36 +674,138 @@ async def submit_vote(request: VoteRequest):
         
         group_id = user["group_id"]
         
-        # Verify bnb exists
-        cursor.execute("SELECT airbnb_id FROM bnbs WHERE airbnb_id = %s", (request.airbnb_id,))
+        # Verify bnb exists in this group
+        cursor.execute(
+            "SELECT airbnb_id FROM bnbs WHERE airbnb_id = %s AND group_id = %s",
+            (request.airbnb_id, group_id),
+        )
         bnb = cursor.fetchone()
         if not bnb:
             raise HTTPException(status_code=404, detail="Property not found")
         
-        # Upsert vote (composite primary key: user_id, airbnb_id)
+        # Upsert vote (composite primary key: user_id, airbnb_id, group_id)
         cursor.execute(
             """
-            INSERT INTO votes (user_id, airbnb_id, vote, reason)
-            VALUES (%s, %s, %s, %s)
-            ON CONFLICT (user_id, airbnb_id) DO UPDATE SET
+            INSERT INTO votes (user_id, airbnb_id, group_id, vote, reason)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (user_id, airbnb_id, group_id) DO UPDATE SET
                 vote = EXCLUDED.vote,
                 reason = EXCLUDED.reason,
                 created_at = now()
             RETURNING user_id, airbnb_id, vote, reason
             """,
-            (request.user_id, request.airbnb_id, request.vote, request.reason),
+            (request.user_id, request.airbnb_id, group_id, request.vote, request.reason),
         )
         vote_row = cursor.fetchone()
+        
+        # Get the next listing using the scorer
+        next_listing = _get_next_listing_for_user(cursor, request.user_id, group_id)
     
     # Notify WebSocket clients of the leaderboard update
     if group_id:
         asyncio.create_task(notify_leaderboard_update(group_id))
     
-    return VoteResponse(
+    return VoteWithNextResponse(
         user_id=vote_row["user_id"],
         airbnb_id=vote_row["airbnb_id"],
         vote=vote_row["vote"],
         reason=vote_row["reason"],
+        next_listing=next_listing,
+    )
+
+
+def _get_next_listing_for_user(cursor, user_id: int, group_id: int) -> NextToVoteResponse:
+    """
+    Get the next listing for a user using the scorer.
+    Returns a fully populated NextToVoteResponse or an empty one if no listings.
+    """
+    # Get total listings count
+    cursor.execute(
+        "SELECT COUNT(*) as count FROM bnbs WHERE group_id = %s",
+        (group_id,),
+    )
+    total_listings = cursor.fetchone()["count"]
+    
+    # Get scored unvoted bnbs for this user (just need the first one)
+    scored_bnbs = bnb_scorer.get_scored_bnbs(group_id, exclude_voted_by_user_id=user_id, limit=1)
+    
+    # Count total remaining
+    cursor.execute(
+        """
+        SELECT COUNT(*) as count FROM bnbs b
+        WHERE b.group_id = %s
+          AND NOT EXISTS (
+              SELECT 1 FROM votes v WHERE v.airbnb_id = b.airbnb_id AND v.group_id = b.group_id AND v.user_id = %s
+          )
+        """,
+        (group_id, user_id),
+    )
+    total_remaining = cursor.fetchone()["count"]
+    
+    if not scored_bnbs:
+        return NextToVoteResponse(has_listing=False, total_remaining=total_remaining, total_listings=total_listings)
+    
+    bnb = scored_bnbs[0]
+    airbnb_id = bnb.airbnb_id
+    
+    # Get images
+    cursor.execute(
+        "SELECT image_url FROM bnb_images WHERE airbnb_id = %s AND group_id = %s",
+        (airbnb_id, group_id),
+    )
+    extra_images = cursor.fetchall()
+    
+    images = []
+    if bnb.main_image_url:
+        images.append(bnb.main_image_url)
+    images.extend([img["image_url"] for img in extra_images])
+    if not images:
+        images = ["https://placehold.co/400x300?text=No+Image"]
+    
+    # Get amenities
+    cursor.execute(
+        "SELECT amenity_id FROM bnb_amenities WHERE airbnb_id = %s AND group_id = %s",
+        (airbnb_id, group_id),
+    )
+    amenities = [a["amenity_id"] for a in cursor.fetchall()]
+    
+    # Get other users' votes on this listing
+    cursor.execute(
+        """
+        SELECT v.user_id, u.nickname as user_name, v.airbnb_id, v.vote, v.reason
+        FROM votes v
+        JOIN users u ON u.id = v.user_id
+        WHERE v.airbnb_id = %s AND v.group_id = %s AND v.user_id != %s
+        """,
+        (airbnb_id, group_id, user_id),
+    )
+    other_votes = [
+        GroupVote(
+            user_id=v["user_id"],
+            user_name=v["user_name"],
+            airbnb_id=v["airbnb_id"],
+            vote=v["vote"],
+            reason=v["reason"],
+        )
+        for v in cursor.fetchall()
+    ]
+    
+    return NextToVoteResponse(
+        airbnb_id=airbnb_id,
+        title=bnb.title,
+        price=bnb.price_per_night,
+        rating=bnb.bnb_rating,
+        review_count=bnb.bnb_review_count,
+        images=images,
+        bedrooms=bnb.min_bedrooms,
+        beds=bnb.min_beds,
+        bathrooms=bnb.min_bathrooms,
+        property_type=bnb.property_type,
+        amenities=amenities,
+        other_votes=other_votes,
+        has_listing=True,
+        total_remaining=total_remaining,
+        total_listings=total_listings,
     )
 
 # TODO Remove this should not be needed as we should have all the info in the leaderboard page. 
@@ -670,14 +820,13 @@ async def get_group_votes(group_id: int):
         if not group:
             raise HTTPException(status_code=404, detail="Group not found")
         
-        # Get all votes from users in this group for bnbs in this group
+        # Get all votes for this group
         cursor.execute(
             """
             SELECT v.user_id, u.nickname as user_name, v.airbnb_id, v.vote, v.reason
             FROM votes v
             INNER JOIN users u ON u.id = v.user_id
-            INNER JOIN bnbs b ON b.airbnb_id = v.airbnb_id AND b.group_id = u.group_id
-            WHERE u.group_id = %s
+            WHERE v.group_id = %s
             ORDER BY v.created_at DESC
             """,
             (group_id,),
@@ -703,11 +852,10 @@ async def get_group_leaderboard(group_id: int):
     """
     Get the leaderboard for a group with dynamically calculated scores.
     
-    Scores are calculated by a PostgreSQL view based on:
+    Scores are calculated by the BnbScorer based on:
     - How many users' filters the listing matches
     - Votes received (veto, ok, love, super love)
     
-    Scoring values are configurable in the 'scoring_config' table.
     Returns the top listings ordered by score descending.
     """
     with get_cursor() as cursor:
@@ -726,8 +874,7 @@ async def get_group_leaderboard(group_id: int):
             "SELECT COUNT(*) as count FROM users WHERE group_id = %s",
             (group_id,),
         )
-        user_count = cursor.fetchone()
-        total_users = user_count["count"]
+        total_users = cursor.fetchone()["count"]
         
         # Get total listings count
         cursor.execute(
@@ -739,57 +886,14 @@ async def get_group_leaderboard(group_id: int):
         if total_listings == 0:
             return LeaderboardResponse(entries=[], total_listings=0, total_users=total_users)
         
-        # Query the leaderboard view - scores calculated by PostgreSQL
-        cursor.execute(
-            """
-            SELECT 
-                airbnb_id,
-                title,
-                price_per_night,
-                bnb_rating,
-                bnb_review_count,
-                main_image_url,
-                min_bedrooms,
-                min_beds,
-                min_bathrooms,
-                property_type,
-                filter_matches,
-                veto_count,
-                ok_count,
-                love_count,
-                super_love_count,
-                score
-            FROM leaderboard_scores
-            WHERE group_id = %s
-            ORDER BY score DESC
-            LIMIT %s
-            """,
-            (group_id, LEADERBOARD_LIMIT),
-        )
-        scored_bnbs = cursor.fetchall()
+        # Get scored bnbs using the scorer
+        scored_bnbs = bnb_scorer.get_scored_bnbs(group_id, limit=LEADERBOARD_LIMIT)
         
         # Get airbnb_ids for batch queries
-        airbnb_ids = [bnb["airbnb_id"] for bnb in scored_bnbs]
+        airbnb_ids = [bnb.airbnb_id for bnb in scored_bnbs]
         
-        # Batch fetch images
-        images_by_bnb: dict[str, list[str]] = {aid: [] for aid in airbnb_ids}
-        if airbnb_ids:
-            cursor.execute(
-                "SELECT airbnb_id, image_url FROM bnb_images WHERE airbnb_id = ANY(%s)",
-                (airbnb_ids,),
-            )
-            for img in cursor.fetchall():
-                images_by_bnb[img["airbnb_id"]].append(img["image_url"])
-        
-        # Batch fetch amenities
-        amenities_by_bnb: dict[str, list[int]] = {aid: [] for aid in airbnb_ids}
-        if airbnb_ids:
-            cursor.execute(
-                "SELECT airbnb_id, amenity_id FROM bnb_amenities WHERE airbnb_id = ANY(%s)",
-                (airbnb_ids,),
-            )
-            for amenity in cursor.fetchall():
-                amenities_by_bnb[amenity["airbnb_id"]].append(amenity["amenity_id"])
+        # Batch fetch images and amenities
+        images_by_bnb, amenities_by_bnb = _get_images_and_amenities_for_bnbs(cursor, group_id, airbnb_ids)
         
         # Build booking link parameters from group data
         check_in = group["date_range_start"].strftime("%Y-%m-%d")
@@ -802,12 +906,12 @@ async def get_group_leaderboard(group_id: int):
         # Build response
         entries = []
         for rank, bnb in enumerate(scored_bnbs, start=1):
-            airbnb_id = bnb["airbnb_id"]
+            airbnb_id = bnb.airbnb_id
             
             # Build images list (main image first)
             images = []
-            if bnb["main_image_url"]:
-                images.append(bnb["main_image_url"])
+            if bnb.main_image_url:
+                images.append(bnb.main_image_url)
             images.extend(images_by_bnb.get(airbnb_id, []))
             if not images:
                 images = ["https://placehold.co/400x300?text=No+Image"]
@@ -824,23 +928,23 @@ async def get_group_leaderboard(group_id: int):
             entries.append(LeaderboardEntry(
                 rank=rank,
                 airbnb_id=airbnb_id,
-                title=bnb["title"] or "Untitled Property",
-                price=bnb["price_per_night"] or 0,
-                rating=float(bnb["bnb_rating"]) if bnb["bnb_rating"] else None,
-                review_count=bnb["bnb_review_count"],
+                title=bnb.title,
+                price=bnb.price_per_night,
+                rating=bnb.bnb_rating,
+                review_count=bnb.bnb_review_count,
                 images=images,
-                bedrooms=bnb["min_bedrooms"],
-                beds=bnb["min_beds"],
-                bathrooms=bnb["min_bathrooms"],
-                property_type=bnb["property_type"],
+                bedrooms=bnb.min_bedrooms,
+                beds=bnb.min_beds,
+                bathrooms=bnb.min_bathrooms,
+                property_type=bnb.property_type,
                 amenities=amenities_by_bnb.get(airbnb_id, []),
-                score=bnb["score"],
-                filter_matches=bnb["filter_matches"],
+                score=bnb.score,
+                filter_matches=bnb.filter_matches,
                 votes=LeaderboardVoteSummary(
-                    veto_count=bnb["veto_count"],
-                    ok_count=bnb["ok_count"],
-                    love_count=bnb["love_count"],
-                    super_love_count=bnb["super_love_count"],
+                    veto_count=bnb.veto_count,
+                    ok_count=bnb.ok_count,
+                    love_count=bnb.love_count,
+                    super_love_count=bnb.super_love_count,
                 ),
                 booking_link=booking_link,
             ))
@@ -948,14 +1052,12 @@ async def delete_user(user_id: int):
         
         # Delete user's votes first (FK constraint)
         cursor.execute("DELETE FROM votes WHERE user_id = %s", (user_id,))
+        # Delete user's filter amenities (must be before user_filters due to FK)
+        cursor.execute("DELETE FROM filter_amenities WHERE user_id = %s", (user_id,))
         # Delete user's filter
         cursor.execute("DELETE FROM user_filters WHERE user_id = %s", (user_id,))
-        # Delete user's filter amenities
-        cursor.execute("DELETE FROM filter_amenities WHERE user_id = %s", (user_id,))
         # Delete user's filter requests
         cursor.execute("DELETE FROM filter_request WHERE user_id = %s", (user_id,))
-        # Delete user's queue entries
-        cursor.execute("DELETE FROM bnb_queue WHERE user_id = %s", (user_id,))
         # Delete the user
         cursor.execute("DELETE FROM users WHERE id = %s", (user_id,))
     
@@ -966,19 +1068,22 @@ async def delete_user(user_id: int):
 async def get_user_votes(user_id: int):
     """Get all votes by a specific user."""
     with get_cursor() as cursor:
-        cursor.execute("SELECT id FROM users WHERE id = %s", (user_id,))
-        if not cursor.fetchone():
+        cursor.execute("SELECT id, group_id FROM users WHERE id = %s", (user_id,))
+        user = cursor.fetchone()
+        if not user:
             raise HTTPException(status_code=404, detail="User not found")
+        
+        group_id = user["group_id"]
         
         cursor.execute(
             """
             SELECT v.airbnb_id, b.title, v.vote, v.reason, v.created_at
             FROM votes v
-            JOIN bnbs b ON b.airbnb_id = v.airbnb_id
-            WHERE v.user_id = %s
+            JOIN bnbs b ON b.airbnb_id = v.airbnb_id AND b.group_id = v.group_id
+            WHERE v.user_id = %s AND v.group_id = %s
             ORDER BY v.created_at DESC
             """,
-            (user_id,),
+            (user_id, group_id),
         )
         votes = cursor.fetchall()
     
@@ -1060,25 +1165,20 @@ async def delete_group(group_id: int):
         cursor.execute("SELECT id FROM users WHERE group_id = %s", (group_id,))
         user_ids = [u["id"] for u in cursor.fetchall()]
         
-        # Get all bnbs in group
-        cursor.execute("SELECT airbnb_id FROM bnbs WHERE group_id = %s", (group_id,))
-        bnb_ids = [b["airbnb_id"] for b in cursor.fetchall()]
-        
         # Delete in order respecting FK constraints
+        # First delete votes for this group
+        cursor.execute("DELETE FROM votes WHERE group_id = %s", (group_id,))
+        
         if user_ids:
-            cursor.execute("DELETE FROM votes WHERE user_id = ANY(%s)", (user_ids,))
             cursor.execute("DELETE FROM filter_amenities WHERE user_id = ANY(%s)", (user_ids,))
             cursor.execute("DELETE FROM user_filters WHERE user_id = ANY(%s)", (user_ids,))
             cursor.execute("DELETE FROM filter_request WHERE user_id = ANY(%s)", (user_ids,))
-            cursor.execute("DELETE FROM bnb_queue WHERE user_id = ANY(%s)", (user_ids,))
         
-        if bnb_ids:
-            cursor.execute("DELETE FROM bnb_images WHERE airbnb_id = ANY(%s)", (bnb_ids,))
-            cursor.execute("DELETE FROM bnb_amenities WHERE airbnb_id = ANY(%s)", (bnb_ids,))
-            cursor.execute("DELETE FROM votes WHERE airbnb_id = ANY(%s)", (bnb_ids,))
-            cursor.execute("DELETE FROM bnb_queue WHERE airbnb_id = ANY(%s)", (bnb_ids,))
-        
+        # Delete bnb-related data for this group
+        cursor.execute("DELETE FROM bnb_images WHERE group_id = %s", (group_id,))
+        cursor.execute("DELETE FROM bnb_amenities WHERE group_id = %s", (group_id,))
         cursor.execute("DELETE FROM bnbs WHERE group_id = %s", (group_id,))
+        
         cursor.execute("DELETE FROM users WHERE group_id = %s", (group_id,))
         cursor.execute("DELETE FROM destinations WHERE group_id = %s", (group_id,))
         cursor.execute("DELETE FROM groups WHERE id = %s", (group_id,))
@@ -1120,19 +1220,32 @@ async def remove_destination(group_id: int, destination_id: int):
         
         # Delete related filter requests
         cursor.execute("DELETE FROM filter_request WHERE destination_id = %s", (destination_id,))
-        # Delete bnbs for this destination
+        
+        # Delete bnbs for this destination (need to delete related data first)
         cursor.execute(
-            "SELECT airbnb_id FROM bnbs WHERE destination_id = %s",
-            (destination_id,),
+            "SELECT airbnb_id FROM bnbs WHERE destination_id = %s AND group_id = %s",
+            (destination_id, group_id),
         )
         bnb_ids = [b["airbnb_id"] for b in cursor.fetchall()]
         
         if bnb_ids:
-            cursor.execute("DELETE FROM bnb_images WHERE airbnb_id = ANY(%s)", (bnb_ids,))
-            cursor.execute("DELETE FROM bnb_amenities WHERE airbnb_id = ANY(%s)", (bnb_ids,))
-            cursor.execute("DELETE FROM votes WHERE airbnb_id = ANY(%s)", (bnb_ids,))
-            cursor.execute("DELETE FROM bnb_queue WHERE airbnb_id = ANY(%s)", (bnb_ids,))
-            cursor.execute("DELETE FROM bnbs WHERE destination_id = %s", (destination_id,))
+            # Use group_id in deletes for composite key tables
+            cursor.execute(
+                "DELETE FROM bnb_images WHERE group_id = %s AND airbnb_id = ANY(%s)",
+                (group_id, bnb_ids),
+            )
+            cursor.execute(
+                "DELETE FROM bnb_amenities WHERE group_id = %s AND airbnb_id = ANY(%s)",
+                (group_id, bnb_ids),
+            )
+            cursor.execute(
+                "DELETE FROM votes WHERE group_id = %s AND airbnb_id = ANY(%s)",
+                (group_id, bnb_ids),
+            )
+            cursor.execute(
+                "DELETE FROM bnbs WHERE destination_id = %s AND group_id = %s",
+                (destination_id, group_id),
+            )
         
         cursor.execute("DELETE FROM destinations WHERE id = %s", (destination_id,))
     
@@ -1151,18 +1264,17 @@ async def get_group_stats(group_id: int):
         cursor.execute("SELECT COUNT(*) as count FROM bnbs WHERE group_id = %s", (group_id,))
         total_listings = cursor.fetchone()["count"]
         
-        # Get users and their vote counts
+        # Get users and their vote counts (votes table now has group_id directly)
         cursor.execute(
             """
             SELECT u.id as user_id, u.nickname, COUNT(v.airbnb_id) as votes_cast
             FROM users u
-            LEFT JOIN votes v ON v.user_id = u.id
-            LEFT JOIN bnbs b ON b.airbnb_id = v.airbnb_id AND b.group_id = u.group_id
+            LEFT JOIN votes v ON v.user_id = u.id AND v.group_id = %s
             WHERE u.group_id = %s
             GROUP BY u.id, u.nickname
             ORDER BY u.nickname
             """,
-            (group_id,),
+            (group_id, group_id),
         )
         users = cursor.fetchall()
     
@@ -1194,20 +1306,20 @@ async def get_group_stats(group_id: int):
 
 
 # =============================================================================
-# VOTING QUEUE ENDPOINTS
+# VOTING ENDPOINTS
 # =============================================================================
 
-@router.get("/user/{user_id}/nextToVote", response_model=NextToVoteResponse, tags=["Voting"])
-async def get_user_next_to_vote(user_id: int, exclude_bnb: int = Query(default=None)):
-    """Returns the next airbnb to vote on except exclude_bnb """
-    # TODO Implement this
-    return NextToVoteResponse()
-
-# Legacy, prefere nexttovote
-@router.get("/user/{user_id}/queue", response_model=VotingQueueResponse, tags=["Voting"], deprecated=True)
-async def get_user_voting_queue(user_id: int, limit: int = Query(default=10, le=50)):
-    """Get unvoted listings for a user (their voting queue). Prefere nextToVote"""
+@router.get("/user/{user_id}/next-to-vote", response_model=NextToVoteResponse, tags=["Voting"])
+async def get_user_next_to_vote(user_id: int, exclude_airbnb_id: str = Query(default=None)):
+    """
+    Returns the next Airbnb listing for the user to vote on.
+    
+    Uses the scorer to find the highest-scored unvoted listing for the user.
+    
+    - exclude_airbnb_id: Optional airbnb_id to exclude (e.g., currently displayed card)
+    """
     with get_cursor() as cursor:
+        # Verify user exists and get group_id
         cursor.execute("SELECT id, group_id FROM users WHERE id = %s", (user_id,))
         user = cursor.fetchone()
         if not user:
@@ -1215,113 +1327,100 @@ async def get_user_voting_queue(user_id: int, limit: int = Query(default=10, le=
         
         group_id = user["group_id"]
         
-        # Get unvoted listings for this user
-        cursor.execute(
-            """
-            SELECT 
-                b.airbnb_id, b.title, b.price_per_night, b.bnb_rating, 
-                b.bnb_review_count, b.main_image_url, b.min_bedrooms,
-                b.min_beds, b.min_bathrooms, b.property_type
-            FROM bnbs b
-            WHERE b.group_id = %s
-            AND NOT EXISTS (
-                SELECT 1 FROM votes v WHERE v.airbnb_id = b.airbnb_id AND v.user_id = %s
+        # Get the next listing using the scorer
+        return _get_next_listing_for_user(cursor, user_id, group_id)
+
+
+@router.get("/user/{user_id}/recommendations", response_model=RecommendationsResponse, tags=["Voting"])
+async def get_user_recommendations(
+    user_id: int,
+    limit: int = Query(default=20, le=50),
+    exclude_ids: str = Query(default=None, description="Comma-separated list of airbnb_ids to exclude"),
+):
+    """
+    Get a batch of recommended listings for the user to vote on.
+    
+    Returns listings scored and sorted by recommendation score, excluding
+    any the user has already voted on.
+    
+    Args:
+        user_id: The user requesting recommendations
+        limit: Maximum number of recommendations to return (default 20, max 50)
+        exclude_ids: Comma-separated airbnb_ids to also exclude (e.g., already shown in frontend)
+    
+    Returns:
+        RecommendationsResponse with scored listings and metadata
+    """
+    with get_cursor() as cursor:
+        # Verify user exists and get group_id
+        cursor.execute("SELECT id, group_id FROM users WHERE id = %s", (user_id,))
+        user = cursor.fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        
+        group_id = user["group_id"]
+        
+        # Get scored unvoted bnbs for this user
+        scored_bnbs = bnb_scorer.get_scored_bnbs(group_id, exclude_voted_by_user_id=user_id)
+        
+        # Apply exclude_ids filter if provided
+        if exclude_ids:
+            exclude_set = set(exclude_ids.split(","))
+            scored_bnbs = [bnb for bnb in scored_bnbs if bnb.airbnb_id not in exclude_set]
+        
+        # Calculate total remaining before limiting
+        total_remaining = len(scored_bnbs)
+        
+        # Apply limit
+        scored_bnbs = scored_bnbs[:limit]
+        
+        if not scored_bnbs:
+            return RecommendationsResponse(
+                recommendations=[],
+                total_remaining=0,
+                has_more=False,
             )
-            ORDER BY b.airbnb_id
-            LIMIT %s
-            """,
-            (group_id, user_id, limit),
-        )
-        unvoted = cursor.fetchall()
         
-        # Get total unvoted count
-        cursor.execute(
-            """
-            SELECT COUNT(*) as count FROM bnbs b
-            WHERE b.group_id = %s
-            AND NOT EXISTS (
-                SELECT 1 FROM votes v WHERE v.airbnb_id = b.airbnb_id AND v.user_id = %s
-            )
-            """,
-            (group_id, user_id),
-        )
-        total_unvoted = cursor.fetchone()["count"]
+        # Batch fetch images, amenities, and other votes
+        airbnb_ids = [bnb.airbnb_id for bnb in scored_bnbs]
+        images_by_bnb, amenities_by_bnb = _get_images_and_amenities_for_bnbs(cursor, group_id, airbnb_ids)
+        votes_by_bnb = _get_other_votes_for_bnbs(cursor, group_id, airbnb_ids, exclude_user_id=user_id)
         
-        if not unvoted:
-            return VotingQueueResponse(user_id=user_id, queue=[], total_unvoted=0)
-        
-        # Get airbnb_ids for batch queries
-        airbnb_ids = [b["airbnb_id"] for b in unvoted]
-        
-        # Batch fetch images
-        images_by_bnb: dict[str, list[str]] = {aid: [] for aid in airbnb_ids}
-        cursor.execute(
-            "SELECT airbnb_id, image_url FROM bnb_images WHERE airbnb_id = ANY(%s)",
-            (airbnb_ids,),
-        )
-        for img in cursor.fetchall():
-            images_by_bnb[img["airbnb_id"]].append(img["image_url"])
-        
-        # Batch fetch amenities
-        amenities_by_bnb: dict[str, list[int]] = {aid: [] for aid in airbnb_ids}
-        cursor.execute(
-            "SELECT airbnb_id, amenity_id FROM bnb_amenities WHERE airbnb_id = ANY(%s)",
-            (airbnb_ids,),
-        )
-        for amenity in cursor.fetchall():
-            amenities_by_bnb[amenity["airbnb_id"]].append(amenity["amenity_id"])
-        
-        # Get other users' votes on these listings
-        votes_by_bnb: dict[str, list[GroupVote]] = {aid: [] for aid in airbnb_ids}
-        cursor.execute(
-            """
-            SELECT v.airbnb_id, v.user_id, u.nickname as user_name, v.vote, v.reason
-            FROM votes v
-            JOIN users u ON u.id = v.user_id
-            WHERE v.airbnb_id = ANY(%s) AND v.user_id != %s
-            """,
-            (airbnb_ids, user_id),
-        )
-        for v in cursor.fetchall():
-            votes_by_bnb[v["airbnb_id"]].append(GroupVote(
-                user_id=v["user_id"],
-                user_name=v["user_name"],
-                airbnb_id=v["airbnb_id"],
-                vote=v["vote"],
-                reason=v["reason"],
-            ))
-        
-        # Build queue
-        queue = []
-        for bnb in unvoted:
-            airbnb_id = bnb["airbnb_id"]
+        # Build response
+        recommendations = []
+        for bnb in scored_bnbs:
+            airbnb_id = bnb.airbnb_id
+            
+            # Build images list
             images = []
-            if bnb["main_image_url"]:
-                images.append(bnb["main_image_url"])
+            if bnb.main_image_url:
+                images.append(bnb.main_image_url)
             images.extend(images_by_bnb.get(airbnb_id, []))
             if not images:
                 images = ["https://placehold.co/400x300?text=No+Image"]
             
-            queue.append(QueuedListing(
+            recommendations.append(RecommendationListing(
                 airbnb_id=airbnb_id,
-                title=bnb["title"] or "Untitled",
-                price=bnb["price_per_night"] or 0,
-                rating=float(bnb["bnb_rating"]) if bnb["bnb_rating"] else None,
-                review_count=bnb["bnb_review_count"],
+                title=bnb.title,
+                price=bnb.price_per_night,
+                rating=bnb.bnb_rating,
+                review_count=bnb.bnb_review_count,
                 images=images,
-                bedrooms=bnb["min_bedrooms"],
-                beds=bnb["min_beds"],
-                bathrooms=bnb["min_bathrooms"],
-                property_type=bnb["property_type"],
+                bedrooms=bnb.min_bedrooms,
+                beds=bnb.min_beds,
+                bathrooms=bnb.min_bathrooms,
+                property_type=bnb.property_type,
                 amenities=amenities_by_bnb.get(airbnb_id, []),
+                score=bnb.score,
+                filter_matches=bnb.filter_matches,
                 other_votes=votes_by_bnb.get(airbnb_id, []),
             ))
-    
-    return VotingQueueResponse(
-        user_id=user_id,
-        queue=queue,
-        total_unvoted=total_unvoted,
-    )
+        
+        return RecommendationsResponse(
+            recommendations=recommendations,
+            total_remaining=total_remaining,
+            has_more=total_remaining > limit,
+        )
 
 
 @router.get("/user/{user_id}/vote-progress", response_model=VoteProgressResponse, tags=["Voting"])
@@ -1339,14 +1438,13 @@ async def get_user_vote_progress(user_id: int):
         cursor.execute("SELECT COUNT(*) as count FROM bnbs WHERE group_id = %s", (group_id,))
         total_listings = cursor.fetchone()["count"]
         
-        # Get votes cast
+        # Get votes cast (votes table now has group_id)
         cursor.execute(
             """
-            SELECT COUNT(*) as count FROM votes v
-            JOIN bnbs b ON b.airbnb_id = v.airbnb_id AND b.group_id = %s
-            WHERE v.user_id = %s
+            SELECT COUNT(*) as count FROM votes
+            WHERE user_id = %s AND group_id = %s
             """,
-            (group_id, user_id),
+            (user_id, group_id),
         )
         votes_cast = cursor.fetchone()["count"]
     
@@ -1366,8 +1464,8 @@ async def get_user_vote_progress(user_id: int):
 # LISTING DETAIL ENDPOINTS
 # =============================================================================
 
-@router.get("/listing/{airbnb_id}", response_model=ListingDetailResponse, tags=["Listings"])
-async def get_listing_detail(airbnb_id: str):
+@router.get("/listing/{group_id}/{airbnb_id}", response_model=ListingDetailResponse, tags=["Listings"])
+async def get_listing_detail(group_id: int, airbnb_id: str):
     """Get full listing details."""
     with get_cursor() as cursor:
         cursor.execute(
@@ -1376,26 +1474,26 @@ async def get_listing_detail(airbnb_id: str):
                    price_per_night, bnb_rating, bnb_review_count, main_image_url,
                    min_bedrooms, min_beds, min_bathrooms, property_type
             FROM bnbs
-            WHERE airbnb_id = %s
+            WHERE airbnb_id = %s AND group_id = %s
             """,
-            (airbnb_id,),
+            (airbnb_id, group_id),
         )
         bnb = cursor.fetchone()
         
         if not bnb:
             raise HTTPException(status_code=404, detail="Listing not found")
         
-        # Get images
+        # Get images (with composite key)
         cursor.execute(
-            "SELECT image_url FROM bnb_images WHERE airbnb_id = %s",
-            (airbnb_id,),
+            "SELECT image_url FROM bnb_images WHERE airbnb_id = %s AND group_id = %s",
+            (airbnb_id, group_id),
         )
         extra_images = cursor.fetchall()
         
-        # Get amenities
+        # Get amenities (with composite key)
         cursor.execute(
-            "SELECT amenity_id FROM bnb_amenities WHERE airbnb_id = %s",
-            (airbnb_id,),
+            "SELECT amenity_id FROM bnb_amenities WHERE airbnb_id = %s AND group_id = %s",
+            (airbnb_id, group_id),
         )
         amenities = cursor.fetchall()
         
@@ -1424,11 +1522,14 @@ async def get_listing_detail(airbnb_id: str):
     )
 
 
-@router.get("/listing/{airbnb_id}/votes", response_model=ListingVotesResponse, tags=["Listings"])
-async def get_listing_votes(airbnb_id: str):
+@router.get("/listing/{group_id}/{airbnb_id}/votes", response_model=ListingVotesResponse, tags=["Listings"])
+async def get_listing_votes(group_id: int, airbnb_id: str):
     """Get all votes for a specific listing."""
     with get_cursor() as cursor:
-        cursor.execute("SELECT airbnb_id FROM bnbs WHERE airbnb_id = %s", (airbnb_id,))
+        cursor.execute(
+            "SELECT airbnb_id FROM bnbs WHERE airbnb_id = %s AND group_id = %s",
+            (airbnb_id, group_id),
+        )
         if not cursor.fetchone():
             raise HTTPException(status_code=404, detail="Listing not found")
         
@@ -1437,10 +1538,10 @@ async def get_listing_votes(airbnb_id: str):
             SELECT v.user_id, u.nickname as user_name, v.airbnb_id, v.vote, v.reason
             FROM votes v
             JOIN users u ON u.id = v.user_id
-            WHERE v.airbnb_id = %s
+            WHERE v.airbnb_id = %s AND v.group_id = %s
             ORDER BY v.created_at DESC
             """,
-            (airbnb_id,),
+            (airbnb_id, group_id),
         )
         votes = cursor.fetchall()
     
@@ -1471,11 +1572,14 @@ async def get_listing_votes(airbnb_id: str):
     )
 
 
-@router.post("/listing/{airbnb_id}/refresh", tags=["Listings"])
-async def refresh_listing(airbnb_id: str):
+@router.post("/listing/{group_id}/{airbnb_id}/refresh", tags=["Listings"])
+async def refresh_listing(group_id: int, airbnb_id: str):
     """Trigger a re-scrape of listing details."""
     with get_cursor() as cursor:
-        cursor.execute("SELECT airbnb_id FROM bnbs WHERE airbnb_id = %s", (airbnb_id,))
+        cursor.execute(
+            "SELECT airbnb_id FROM bnbs WHERE airbnb_id = %s AND group_id = %s",
+            (airbnb_id, group_id),
+        )
         if not cursor.fetchone():
             raise HTTPException(status_code=404, detail="Listing not found")
     

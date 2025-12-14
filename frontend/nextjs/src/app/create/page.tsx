@@ -4,7 +4,33 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '../../store/useAppStore';
 import { createGroup, joinGroup } from '../../lib/api';
-import { Calendar, MapPin, X, Plus, Users, Loader2 } from 'lucide-react';
+import { MapPin, X, Plus, Users, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  DateRangePicker,
+  Label,
+  Group,
+  DateInput,
+  DateSegment,
+  Button,
+  Popover,
+  Dialog,
+  RangeCalendar,
+  CalendarGrid,
+  CalendarGridHeader,
+  CalendarHeaderCell,
+  CalendarGridBody,
+  CalendarCell,
+} from 'react-aria-components';
+import { today, getLocalTimeZone } from '@internationalized/date';
+import type { DateRange } from 'react-aria-components';
+
+// Calculate default dates: one month from now, spanning one week
+function getDefaultDateRange(): DateRange {
+  const now = today(getLocalTimeZone());
+  const startDate = now.add({ months: 1 });
+  const endDate = startDate.add({ days: 7 });
+  return { start: startDate, end: endDate };
+}
 
 export default function CreateGroupPage() {
   const router = useRouter();
@@ -13,8 +39,7 @@ export default function CreateGroupPage() {
   const [groupName, setGroupName] = useState('Summer 2025');
   const [destinations, setDestinations] = useState<string[]>(['Mallorca, ES']);
   const [newDestination, setNewDestination] = useState('');
-  const [startDate, setStartDate] = useState('2025-07-15');
-  const [endDate, setEndDate] = useState('2025-07-22');
+  const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
   const [userName, setUserName] = useState('');
   const [adults, setAdults] = useState(2);
   const [children, setChildren] = useState(0);
@@ -22,6 +47,7 @@ export default function CreateGroupPage() {
   const [pets, setPets] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
 
   const addDestination = () => {
     if (newDestination.trim() && !destinations.includes(newDestination.trim())) {
@@ -53,8 +79,8 @@ export default function CreateGroupPage() {
       const groupResponse = await createGroup({
         group_name: groupName,
         destinations: destinations,
-        date_start: startDate,
-        date_end: endDate,
+        date_start: dateRange.start.toString(),
+        date_end: dateRange.end.toString(),
         adults,
         children,
         infants,
@@ -153,41 +179,87 @@ export default function CreateGroupPage() {
           </div>
         </div>
 
-        <div>
-          <label className="mb-2 block font-medium text-slate-700">Dates</label>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Calendar className="h-5 w-5 text-slate-400" />
-              </div>
-              <input
-                type="date"
-                value={startDate}
-                min={new Date().toISOString().split('T')[0]}
-                onChange={(e) => {
-                  const newStart = e.target.value;
-                  setStartDate(newStart);
-                  if (endDate && newStart > endDate) {
-                    setEndDate(newStart);
-                  }
-                }}
-                className="w-full rounded-xl border-0 bg-slate-50 p-4 pl-10 text-slate-900 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-rose-500"
-              />
-            </div>
-            <div className="relative">
-              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <Calendar className="h-5 w-5 text-slate-400" />
-              </div>
-              <input
-                type="date"
-                value={endDate}
-                min={startDate || new Date().toISOString().split('T')[0]}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full rounded-xl border-0 bg-slate-50 p-4 pl-10 text-slate-900 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-rose-500"
-              />
-            </div>
-          </div>
-        </div>
+        <DateRangePicker
+          value={dateRange}
+          onChange={(value) => value && setDateRange(value)}
+          minValue={today(getLocalTimeZone())}
+          shouldCloseOnSelect={false}
+          isOpen={isDatePickerOpen}
+          onOpenChange={setIsDatePickerOpen}
+          className="flex flex-col gap-2"
+        >
+          <Label className="font-medium text-slate-700">Dates</Label>
+          <Button className="flex items-center gap-3 w-full rounded-xl border-0 bg-slate-50 p-4 text-slate-900 ring-1 ring-inset ring-slate-200 cursor-pointer hover:ring-slate-300 hover:bg-slate-100 transition-colors outline-none focus:ring-2 focus:ring-rose-500">
+            <DateInput slot="start" className="flex pointer-events-none">
+              {(segment) => (
+                <DateSegment
+                  segment={segment}
+                  className="rounded outline-none data-[placeholder]:text-slate-400 tabular-nums"
+                />
+              )}
+            </DateInput>
+            <span className="text-slate-400">–</span>
+            <DateInput slot="end" className="flex pointer-events-none">
+              {(segment) => (
+                <DateSegment
+                  segment={segment}
+                  className="rounded outline-none data-[placeholder]:text-slate-400 tabular-nums"
+                />
+              )}
+            </DateInput>
+            <ChevronRight className="ml-auto w-5 h-5 text-slate-400" />
+          </Button>
+          <Popover className="bg-white rounded-2xl shadow-xl border border-slate-200 p-4 max-h-[70vh] overflow-hidden max-sm:fixed max-sm:inset-0 max-sm:max-h-none max-sm:rounded-none max-sm:border-0 max-sm:z-50 max-sm:flex max-sm:flex-col">
+            <Dialog className="outline-none max-sm:flex max-sm:flex-col max-sm:h-full">
+              <RangeCalendar className="w-fit max-sm:flex max-sm:flex-col max-sm:h-full max-sm:w-full" visibleDuration={{ months: 12 }}>
+                <header className="hidden max-sm:flex items-center mb-4 sticky top-0 bg-white z-10 pt-3 px-2 border-b border-slate-200 pb-3">
+                  <button
+                    type="button"
+                    className="p-2 rounded-lg hover:bg-slate-100 transition-colors -ml-1"
+                    onClick={() => setIsDatePickerOpen(false)}
+                  >
+                    <ChevronLeft className="w-6 h-6 text-slate-600" />
+                  </button>
+                </header>
+                <div className="overflow-y-auto max-h-[calc(70vh-60px)] space-y-6 pr-2 max-sm:max-h-none max-sm:flex-1 max-sm:px-4 max-sm:flex max-sm:flex-col max-sm:items-center">
+                  {Array.from({ length: 12 }, (_, i) => {
+                    const monthDate = today(getLocalTimeZone()).add({ months: i });
+                    const monthName = monthDate.toDate(getLocalTimeZone()).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+                    return (
+                      <div key={i} className="max-sm:w-fit">
+                        <h3 className="font-semibold text-slate-900 text-center mb-3">{monthName}</h3>
+                        <CalendarGrid offset={{ months: i }} className="border-separate border-spacing-1">
+                          <CalendarGridHeader>
+                            {(day) => (
+                              <CalendarHeaderCell className="w-10 h-8 text-xs font-medium text-slate-500">
+                                {day}
+                              </CalendarHeaderCell>
+                            )}
+                          </CalendarGridHeader>
+                          <CalendarGridBody>
+                            {(date) => (
+                              <CalendarCell
+                                date={date}
+                                className="w-10 h-10 rounded-lg flex items-center justify-center text-sm text-slate-900 outline-none
+                                  hover:bg-slate-100 transition-colors cursor-pointer
+                                  data-[selected]:bg-rose-500 data-[selected]:text-white data-[selected]:hover:bg-rose-600
+                                  data-[selection-start]:rounded-l-lg data-[selection-end]:rounded-r-lg
+                                  data-[outside-month]:invisible
+                                  data-[disabled]:text-slate-300 data-[disabled]:pointer-events-none data-[disabled]:cursor-not-allowed
+                                  data-[unavailable]:text-slate-300 data-[unavailable]:line-through data-[unavailable]:cursor-not-allowed
+                                  focus:ring-2 focus:ring-rose-500 focus:ring-offset-1"
+                              />
+                            )}
+                          </CalendarGridBody>
+                        </CalendarGrid>
+                      </div>
+                    );
+                  })}
+                </div>
+              </RangeCalendar>
+            </Dialog>
+          </Popover>
+        </DateRangePicker>
 
         <div>
           <label className="mb-2 block font-medium text-slate-700">
