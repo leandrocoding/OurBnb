@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '../../store/useAppStore';
 import { createGroup, joinGroup } from '../../lib/api';
+import { searchLocations, type LocationSuggestion } from '../../lib/locationSearch';
 import { MapPin, X, Plus, Users, Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
 import {
   DateRangePicker,
@@ -48,6 +49,103 @@ export default function CreateGroupPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+
+  // Location autocomplete state
+  const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [highlightedIndex, setHighlightedIndex] = useState(-1);
+  const suggestionRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Debounced location search
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  
+  const handleLocationSearch = useCallback((query: string) => {
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+
+    if (query.trim().length < 2) {
+      setLocationSuggestions([]);
+      setShowSuggestions(false);
+      return;
+    }
+
+    setIsSearching(true);
+    searchTimeoutRef.current = setTimeout(async () => {
+      const results = await searchLocations(query);
+      setLocationSuggestions(results);
+      setShowSuggestions(results.length > 0);
+      setIsSearching(false);
+      setHighlightedIndex(-1);
+    }, 300);
+  }, []);
+
+  // Handle clicking outside to close suggestions
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (
+        suggestionRef.current &&
+        !suggestionRef.current.contains(event.target as Node) &&
+        inputRef.current &&
+        !inputRef.current.contains(event.target as Node)
+      ) {
+        setShowSuggestions(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const selectSuggestion = (suggestion: LocationSuggestion) => {
+    if (!destinations.includes(suggestion.displayName)) {
+      setDestinations([...destinations, suggestion.displayName]);
+    }
+    setNewDestination('');
+    setShowSuggestions(false);
+    setLocationSuggestions([]);
+    setHighlightedIndex(-1);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (!showSuggestions || locationSuggestions.length === 0) {
+      if (e.key === 'Enter') {
+        addDestination();
+      }
+      return;
+    }
+
+    switch (e.key) {
+      case 'ArrowDown':
+        e.preventDefault();
+        setHighlightedIndex((prev) => 
+          prev < locationSuggestions.length - 1 ? prev + 1 : 0
+        );
+        break;
+      case 'ArrowUp':
+        e.preventDefault();
+        setHighlightedIndex((prev) => 
+          prev > 0 ? prev - 1 : locationSuggestions.length - 1
+        );
+        break;
+      case 'Enter':
+        e.preventDefault();
+        if (highlightedIndex >= 0) {
+          selectSuggestion(locationSuggestions[highlightedIndex]);
+        } else if (locationSuggestions.length > 0) {
+          selectSuggestion(locationSuggestions[0]);
+        } else {
+          addDestination();
+        }
+        break;
+      case 'Escape':
+        setShowSuggestions(false);
+        setHighlightedIndex(-1);
+        break;
+    }
+  };
 
   const addDestination = () => {
     if (newDestination.trim() && !destinations.includes(newDestination.trim())) {
@@ -160,15 +258,60 @@ export default function CreateGroupPage() {
           </div>
           <div className="relative flex gap-2">
             <div className="relative flex-1">
-              <MapPin className="absolute left-4 top-4 h-5 w-5 text-slate-400" />
+              <MapPin className="absolute left-4 top-4 h-5 w-5 text-slate-400 z-10" />
+              {isSearching && (
+                <Loader2 className="absolute right-4 top-4 h-5 w-5 text-slate-400 animate-spin" />
+              )}
               <input
+                ref={inputRef}
                 type="text"
                 value={newDestination}
-                onChange={(e) => setNewDestination(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && addDestination()}
-                placeholder="Add a destination..."
+                onChange={(e) => {
+                  setNewDestination(e.target.value);
+                  handleLocationSearch(e.target.value);
+                }}
+                onFocus={() => {
+                  if (locationSuggestions.length > 0) {
+                    setShowSuggestions(true);
+                  }
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder="Search for a destination..."
                 className="w-full rounded-xl border-0 bg-slate-50 p-4 pl-12 text-slate-900 ring-1 ring-inset ring-slate-200 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-rose-500"
+                autoComplete="off"
               />
+              {/* Location suggestions dropdown */}
+              {showSuggestions && locationSuggestions.length > 0 && (
+                <div
+                  ref={suggestionRef}
+                  className="absolute top-full left-0 right-0 mt-1 bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden z-50"
+                >
+                  {locationSuggestions.map((suggestion, index) => (
+                    <button
+                      key={`${suggestion.lat}-${suggestion.lon}`}
+                      type="button"
+                      onClick={() => selectSuggestion(suggestion)}
+                      className={`w-full px-4 py-3 text-left flex items-center gap-3 transition-colors ${
+                        index === highlightedIndex
+                          ? 'bg-rose-50'
+                          : 'hover:bg-slate-50'
+                      }`}
+                    >
+                      <MapPin className="h-4 w-4 text-slate-400 flex-shrink-0" />
+                      <div className="overflow-hidden">
+                        <div className="font-medium text-slate-900 truncate">
+                          {suggestion.name}
+                        </div>
+                        {suggestion.displayName !== suggestion.name && (
+                          <div className="text-sm text-slate-500 truncate">
+                            {suggestion.displayName}
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <button
               onClick={addDestination}
