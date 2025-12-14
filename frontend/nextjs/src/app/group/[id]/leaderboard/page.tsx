@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import { useAppStore } from '../../../../store/useAppStore';
 import { getLeaderboard, getLeaderboardWebSocketUrl, LeaderboardEntry, LeaderboardResponse } from '../../../../lib/api';
 import Link from 'next/link';
-import { Trophy, Heart, ThumbsUp, AlertCircle, Loader2, Users, RefreshCw, ExternalLink } from 'lucide-react';
+import { Trophy, Heart, ThumbsUp, AlertCircle, Loader2, Users, RefreshCw, ExternalLink, MapPin } from 'lucide-react';
 
 export default function LeaderboardPage() {
   const { id } = useParams();
@@ -261,9 +261,18 @@ export default function LeaderboardPage() {
                   </div>
                 </div>
                 
-                <p className="text-slate-600 text-sm mb-2">
-                  CHF {entry.price} / night
-                </p>
+                <div className="flex items-center gap-2 text-slate-600 text-sm mb-2">
+                  <span>CHF {entry.price} / night</span>
+                  {entry.location && (
+                    <>
+                      <span className="text-slate-300">•</span>
+                      <div className="flex items-center gap-1 text-slate-500">
+                        <MapPin className="w-3 h-3" />
+                        <span>{entry.location}</span>
+                      </div>
+                    </>
+                  )}
+                </div>
                 
                 <div className="flex gap-2 flex-wrap">
                   {entry.votes.love_count > 0 && (

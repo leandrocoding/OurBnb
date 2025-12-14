@@ -242,6 +242,9 @@ async def get_leaderboard_data_for_ws(group_id: int) -> dict:
             if pets > 0:
                 booking_link += f"&pets={pets}"
             
+            # Get location name (extract first part before comma for display)
+            location = bnb.location_name.split(',')[0] if bnb.location_name else None
+            
             entries.append({
                 "rank": rank,
                 "airbnb_id": airbnb_id,
@@ -249,6 +252,7 @@ async def get_leaderboard_data_for_ws(group_id: int) -> dict:
                 "price": bnb.price_per_night,
                 "rating": bnb.bnb_rating,
                 "review_count": bnb.bnb_review_count,
+                "location": location,
                 "images": images,
                 "bedrooms": bnb.min_bedrooms,
                 "beds": bnb.min_beds,
@@ -852,12 +856,16 @@ def _get_next_listing_for_user(cursor, user_id: int, group_id: int, exclude_airb
     if pets > 0:
         booking_link += f"&pets={pets}"
     
+    # Get location name (extract first part before comma for display)
+    location = bnb.location_name.split(',')[0] if bnb.location_name else None
+    
     return NextToVoteResponse(
         airbnb_id=airbnb_id,
         title=bnb.title,
         price=bnb.price_per_night,
         rating=bnb.bnb_rating,
         review_count=bnb.bnb_review_count,
+        location=location,
         images=images,
         bedrooms=bnb.min_bedrooms,
         beds=bnb.min_beds,
@@ -988,6 +996,9 @@ async def get_group_leaderboard(group_id: int):
             if pets > 0:
                 booking_link += f"&pets={pets}"
             
+            # Get location name (extract first part before comma for display)
+            location = bnb.location_name.split(',')[0] if bnb.location_name else None
+            
             entries.append(LeaderboardEntry(
                 rank=rank,
                 airbnb_id=airbnb_id,
@@ -995,6 +1006,7 @@ async def get_group_leaderboard(group_id: int):
                 price=bnb.price_per_night,
                 rating=bnb.bnb_rating,
                 review_count=bnb.bnb_review_count,
+                location=location,
                 images=images,
                 bedrooms=bnb.min_bedrooms,
                 beds=bnb.min_beds,
@@ -1474,12 +1486,16 @@ async def get_user_recommendations(
             if not images:
                 images = ["https://placehold.co/400x300?text=No+Image"]
             
+            # Get location name (extract first part before comma for display)
+            location = bnb.location_name.split(',')[0] if bnb.location_name else None
+            
             recommendations.append(RecommendationListing(
                 airbnb_id=airbnb_id,
                 title=bnb.title,
                 price=bnb.price_per_night,
                 rating=bnb.bnb_rating,
                 review_count=bnb.bnb_review_count,
+                location=location,
                 images=images,
                 bedrooms=bnb.min_bedrooms,
                 beds=bnb.min_beds,
