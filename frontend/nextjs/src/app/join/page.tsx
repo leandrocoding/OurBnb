@@ -13,10 +13,12 @@ function JoinGroupContent() {
 
   const [userName, setUserName] = useState('');
   const [groupId, setGroupId] = useState<number | null>(null);
+  const [groupIdInput, setGroupIdInput] = useState('');
   const [groupInfo, setGroupInfo] = useState<GroupInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isJoining, setIsJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [needsGroupId, setNeedsGroupId] = useState(false);
   const [showExistingMembers, setShowExistingMembers] = useState(false);
 
   useEffect(() => {
@@ -31,10 +33,23 @@ function JoinGroupContent() {
         setIsLoading(false);
       }
     } else {
-      setError('No group ID provided. Use a link shared by the group creator.');
+      setNeedsGroupId(true);
       setIsLoading(false);
     }
   }, [searchParams]);
+
+  const handleLookupGroup = async () => {
+    const id = parseInt(groupIdInput, 10);
+    if (isNaN(id)) {
+      setError('Please enter a valid group ID');
+      return;
+    }
+    setError(null);
+    setIsLoading(true);
+    setGroupId(id);
+    await fetchGroupInfo(id);
+    setNeedsGroupId(false);
+  };
 
   const fetchGroupInfo = async (id: number) => {
     try {
@@ -106,18 +121,70 @@ function JoinGroupContent() {
     );
   }
 
+  if (needsGroupId) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center bg-white p-6 text-center">
+        <div className="text-6xl mb-4">🔗</div>
+        <h1 className="text-2xl font-bold text-slate-900 mb-2">Join a Group</h1>
+        <p className="text-slate-600 mb-2">The easiest way to join is to click the invite link your friend sent you.</p>
+        <p className="text-slate-500 text-sm mb-6">Don't have a link? You can also enter the group ID manually below.</p>
+        
+        {error && (
+          <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm w-full max-w-xs">
+            {error}
+          </div>
+        )}
+        
+        <div className="flex flex-col gap-4 w-full max-w-xs">
+          <input
+            type="text"
+            value={groupIdInput}
+            onChange={(e) => setGroupIdInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && handleLookupGroup()}
+            placeholder="Enter group ID"
+            className="w-full rounded-xl border-0 bg-slate-50 p-4 text-slate-900 ring-1 ring-inset ring-slate-200 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-rose-500"
+          />
+          <button
+            onClick={handleLookupGroup}
+            className="flex h-14 w-full items-center justify-center rounded-xl bg-rose-500 text-lg font-bold text-white shadow-lg transition-colors hover:bg-rose-600"
+          >
+            Find Group
+          </button>
+          <button
+            onClick={() => router.push('/')}
+            className="text-slate-500 hover:text-slate-700 font-medium"
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!groupInfo) {
     return (
       <div className="flex h-full flex-col items-center justify-center bg-white p-6 text-center">
         <div className="text-6xl mb-4">😕</div>
         <h1 className="text-2xl font-bold text-slate-900 mb-2">Group not found</h1>
         <p className="text-slate-600 mb-6">{error || 'The group you are looking for does not exist.'}</p>
-        <button
-          onClick={() => router.push('/')}
-          className="bg-rose-500 text-white px-6 py-3 rounded-xl font-bold"
-        >
-          Go Home
-        </button>
+        <div className="flex flex-col gap-3">
+          <button
+            onClick={() => {
+              setNeedsGroupId(true);
+              setError(null);
+              setGroupIdInput('');
+            }}
+            className="bg-rose-500 text-white px-6 py-3 rounded-xl font-bold"
+          >
+            Try Another Group ID
+          </button>
+          <button
+            onClick={() => router.push('/')}
+            className="text-slate-500 hover:text-slate-700 font-medium"
+          >
+            Go Home
+          </button>
+        </div>
       </div>
     );
   }
