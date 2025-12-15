@@ -63,8 +63,7 @@ CREATE TABLE "filter_request" (
   PRIMARY KEY ("user_id", "destination_id")
 );
 
--- bnbs now uses composite PK (airbnb_id, group_id) to support same listing
--- in multiple groups with different prices (price varies by date range)
+
 CREATE TABLE "bnbs" (
   "airbnb_id" text NOT NULL,
   "group_id" integer NOT NULL,
@@ -88,7 +87,7 @@ CREATE TABLE "bnbs" (
   CHECK (min_bathrooms >= 0 OR min_bathrooms IS NULL)
 );
 
--- bnb_amenities needs group_id to reference composite PK
+
 CREATE TABLE "bnb_amenities" (
   "airbnb_id" text NOT NULL,
   "group_id" integer NOT NULL,
@@ -96,7 +95,7 @@ CREATE TABLE "bnb_amenities" (
   PRIMARY KEY ("airbnb_id", "group_id", "amenity_id")
 );
 
--- bnb_images needs group_id to reference composite PK
+
 CREATE TABLE "bnb_images" (
   "airbnb_id" text NOT NULL,
   "group_id" integer NOT NULL,
@@ -104,7 +103,7 @@ CREATE TABLE "bnb_images" (
   PRIMARY KEY ("airbnb_id", "group_id", "image_url")
 );
 
--- votes needs group_id to reference composite PK
+
 CREATE TABLE "votes" (
   "user_id" integer NOT NULL,
   "airbnb_id" text NOT NULL,

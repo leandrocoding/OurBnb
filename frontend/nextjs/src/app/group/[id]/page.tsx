@@ -4,30 +4,28 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAppStore } from '../../../store/useAppStore';
 import { VotingCard, preloadImages } from '../../../components/VotingCard';
-import { submitVote, getGroupInfo, getNextToVote, GroupInfo, NextToVoteResponse, GroupVote } from '../../../lib/api';
+import { submitVote, getGroupInfo, GroupInfo, GroupVote, RecommendationListing } from '../../../lib/api';
 import { VoteValue, Listing, OtherVote } from '../../../types';
 import { Loader2, Search, Home } from 'lucide-react';
 import { motion, useMotionValue, useTransform, animate } from 'framer-motion';
 import Link from 'next/link';
 
-// Convert API NextToVoteResponse to component Listing format
-function toComponentListing(response: NextToVoteResponse): Listing | null {
-  if (!response.has_listing || !response.airbnb_id) return null;
-  
+// Convert RecommendationListing to component Listing format
+function toComponentListing(rec: RecommendationListing): Listing {
   return {
-    id: response.airbnb_id,
-    title: response.title || 'Untitled Property',
-    price: response.price || 0,
-    rating: response.rating,
-    reviewCount: response.review_count,
-    images: response.images.length > 0 ? response.images : ['https://placehold.co/400x300?text=No+Image'],
-    amenities: response.amenities,
-    propertyType: response.property_type,
-    bedrooms: response.bedrooms,
-    beds: response.beds,
-    bathrooms: response.bathrooms,
-    bookingLink: response.booking_link,
-    location: response.location,
+    id: rec.airbnb_id,
+    title: rec.title || 'Untitled Property',
+    price: rec.price || 0,
+    rating: rec.rating,
+    reviewCount: rec.review_count,
+    images: rec.images.length > 0 ? rec.images : ['https://placehold.co/400x300?text=No+Image'],
+    amenities: rec.amenities,
+    propertyType: rec.property_type,
+    bedrooms: rec.bedrooms,
+    beds: rec.beds,
+    bathrooms: rec.bathrooms,
+    bookingLink: rec.booking_link,
+    location: rec.location,
   };
 }
 
@@ -52,14 +50,22 @@ const LOADING_MESSAGES = [
 export default function GroupPage() {
   const { id } = useParams();
   const router = useRouter();
-  const { currentUser, isHydrated } = useAppStore();
-  
-  // Two-card buffer: current listing being displayed and prefetched next listing
-  const [currentResponse, setCurrentResponse] = useState<NextToVoteResponse | null>(null);
-  const [prefetchedResponse, setPrefetchedResponse] = useState<NextToVoteResponse | null>(null);
+  const { 
+    currentUser, 
+    isHydrated,
+    recommendations,
+    currentIndex,
+    totalRemaining,
+    hasMore,
+    isLoadingRecommendations,
+    recommendationsError,
+    recommendationsVersion,
+    fetchRecommendations,
+    advanceToNextCard,
+  } = useAppStore();
   
   const [groupInfo, setGroupInfo] = useState<GroupInfo | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isWaitingForListings, setIsWaitingForListings] = useState(false);
   const [isVoting, setIsVoting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -69,6 +75,7 @@ export default function GroupPage() {
   
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const mountedRef = useRef(true);
+  const initialFetchDoneRef = useRef(false);
   
   // Motion value for background card animation (0 = background position, 1 = foreground position)
   const bgProgress = useMotionValue(0);
@@ -105,87 +112,82 @@ export default function GroupPage() {
     return () => clearInterval(interval);
   }, [isWaitingForListings]);
 
-  // Fetch initial data: current listing, prefetched listing, and group info
-  const fetchData = useCallback(async (isPolling = false) => {
-    if (!currentUser || !groupId || !mountedRef.current) return;
-
-    if (!isPolling) {
-      setIsLoading(true);
-    }
-    setError(null);
-
-    try {
-      // Fetch current listing and group info in parallel
-      const [firstResponse, groupResponse] = await Promise.all([
-        getNextToVote(currentUser.id),
-        getGroupInfo(groupId),
-      ]);
+  // Fetch group info and initial recommendations
+  useEffect(() => {
+    if (!currentUser || !groupId || !isHydrated || initialFetchDoneRef.current) return;
+    
+    const fetchInitialData = async () => {
+      setIsInitialLoading(true);
+      setError(null);
       
-      if (!mountedRef.current) return;
-      
-      setGroupInfo(groupResponse);
-      
-      // Check if we got a listing
-      if (!firstResponse.has_listing) {
-        // No listings available - determine why
-        if (firstResponse.total_listings === 0) {
-          // No bnbs exist yet for this group (scraping in progress)
-          setIsWaitingForListings(true);
-        } else if (firstResponse.total_remaining === 0) {
-          // User has voted on all existing listings
-          setCurrentResponse(firstResponse);
-          setPrefetchedResponse(null);
-          setIsWaitingForListings(false);
-        } else {
-          // Listings exist but buffer couldn't be filled (edge case, treat as waiting)
-          setIsWaitingForListings(true);
-        }
-        setIsLoading(false);
-        return;
-      }
-      
-      setCurrentResponse(firstResponse);
-      setIsWaitingForListings(false);
-      
-      // Prefetch the next listing (exclude current one)
-      if (firstResponse.airbnb_id) {
-        const secondResponse = await getNextToVote(currentUser.id, [firstResponse.airbnb_id]);
+      try {
+        // Fetch group info
+        const groupResponse = await getGroupInfo(groupId);
         if (mountedRef.current) {
-          setPrefetchedResponse(secondResponse.has_listing ? secondResponse : null);
+          setGroupInfo(groupResponse);
+        }
+        
+        // Fetch initial recommendations (force fetch)
+        await fetchRecommendations(true);
+        
+        initialFetchDoneRef.current = true;
+      } catch (err) {
+        if (mountedRef.current) {
+          setError(err instanceof Error ? err.message : 'Failed to load data');
+        }
+      } finally {
+        if (mountedRef.current) {
+          setIsInitialLoading(false);
         }
       }
-    } catch (err) {
-      if (mountedRef.current) {
-        setError(err instanceof Error ? err.message : 'Failed to load listings');
-      }
-    } finally {
-      if (mountedRef.current) {
-        setIsLoading(false);
-      }
-    }
-  }, [currentUser, groupId]);
+    };
+    
+    fetchInitialData();
+  }, [currentUser, groupId, isHydrated, fetchRecommendations]);
 
-  // Initial fetch
+  // Refetch recommendations when version changes (filter/group settings changed)
+  useEffect(() => {
+    if (!initialFetchDoneRef.current || !currentUser) return;
+    
+    // Force refetch when version changes
+    fetchRecommendations(true);
+  }, [recommendationsVersion, fetchRecommendations, currentUser]);
+
+  // Set up mounted ref
   useEffect(() => {
     mountedRef.current = true;
-    fetchData();
-    
     return () => {
       mountedRef.current = false;
     };
-  }, [fetchData]);
+  }, []);
 
-  // Preload images for prefetched listing
+  // Determine if we're waiting for listings (no recommendations and no more to fetch)
   useEffect(() => {
-    if (prefetchedResponse?.has_listing && prefetchedResponse.images.length > 0) {
-      preloadImages(prefetchedResponse.images);
+    if (isInitialLoading || isLoadingRecommendations) return;
+    
+    const currentListing = recommendations[currentIndex];
+    if (!currentListing && totalRemaining === 0 && !hasMore) {
+      // Check if there are any listings at all by looking at the state
+      // If totalRemaining is 0 and we have no recommendations, we might be waiting
+      setIsWaitingForListings(recommendations.length === 0 && currentIndex === 0);
+    } else {
+      setIsWaitingForListings(false);
     }
-  }, [prefetchedResponse]);
+  }, [recommendations, currentIndex, totalRemaining, hasMore, isInitialLoading, isLoadingRecommendations]);
+
+  // Preload images for next listing
+  useEffect(() => {
+    const nextListing = recommendations[currentIndex + 1];
+    if (nextListing && nextListing.images.length > 0) {
+      preloadImages(nextListing.images);
+    }
+  }, [recommendations, currentIndex]);
 
   // Reset background card progress when current listing changes
+  const currentListing = recommendations[currentIndex];
   useEffect(() => {
     bgProgress.set(0);
-  }, [currentResponse?.airbnb_id, bgProgress]);
+  }, [currentListing?.airbnb_id, bgProgress]);
 
   // Handle drag progress from active card - animate background card in sync
   const handleDragProgress = useCallback((progress: number) => {
@@ -210,7 +212,7 @@ export default function GroupPage() {
     // Poll every 5 seconds
     pollingRef.current = setInterval(() => {
       if (mountedRef.current) {
-        fetchData(true);
+        fetchRecommendations(true);
       }
     }, 5000);
 
@@ -220,68 +222,19 @@ export default function GroupPage() {
         pollingRef.current = null;
       }
     };
-  }, [isWaitingForListings, fetchData]);
+  }, [isWaitingForListings, fetchRecommendations]);
 
   const handleVote = async (vote: VoteValue) => {
-    if (!currentUser || !currentResponse?.has_listing || !currentResponse.airbnb_id || isVoting) return;
+    if (!currentUser || !currentListing || isVoting) return;
 
     setIsVoting(true);
     
-    // Capture IDs before state changes
-    const votedId = currentResponse.airbnb_id;
-    const nextCurrent = prefetchedResponse;
-
     try {
-      // Submit vote (we ignore next_listing from response - we manage our own queue)
-      await submitVote(currentUser.id, votedId, vote);
+      // Submit vote to backend
+      await submitVote(currentUser.id, currentListing.airbnb_id, vote);
 
-      // Move prefetched to current
-      if (nextCurrent?.has_listing && nextCurrent.airbnb_id) {
-        setCurrentResponse(nextCurrent);
-        
-        // Fetch new prefetch in background (exclude voted ID + new current to avoid race conditions)
-        getNextToVote(currentUser.id, [votedId, nextCurrent.airbnb_id])
-          .then(response => {
-            if (mountedRef.current) {
-              setPrefetchedResponse(response.has_listing ? response : null);
-            }
-          })
-          .catch(() => {
-            if (mountedRef.current) setPrefetchedResponse(null);
-          });
-      } else {
-        // No prefetched card - try to fetch a new current (exclude voted ID)
-        try {
-          const response = await getNextToVote(currentUser.id, [votedId]);
-          if (mountedRef.current) {
-            if (response.has_listing) {
-              setCurrentResponse(response);
-              // Fetch prefetch for the new current (exclude voted ID + new current)
-              if (response.airbnb_id) {
-                getNextToVote(currentUser.id, [votedId, response.airbnb_id])
-                  .then(prefetchResponse => {
-                    if (mountedRef.current) {
-                      setPrefetchedResponse(prefetchResponse.has_listing ? prefetchResponse : null);
-                    }
-                  })
-                  .catch(() => {});
-              }
-            } else {
-              // No more listings
-              setCurrentResponse(response);
-              setPrefetchedResponse(null);
-              if (response.total_listings === 0) {
-                setIsWaitingForListings(true);
-              }
-            }
-          }
-        } catch {
-          if (mountedRef.current) {
-            setCurrentResponse({ has_listing: false, total_remaining: 0, total_listings: 0, images: [], amenities: [], other_votes: [] });
-            setPrefetchedResponse(null);
-          }
-        }
-      }
+      // Advance to next card in local buffer (this will trigger refetch if needed)
+      advanceToNextCard();
       
       // Increment vote count to force VotingCard re-mount (resets isAnimating)
       setVoteCount(prev => prev + 1);
@@ -292,8 +245,14 @@ export default function GroupPage() {
     }
   };
 
+  const handleRetry = useCallback(() => {
+    setError(null);
+    initialFetchDoneRef.current = false;
+    fetchRecommendations(true);
+  }, [fetchRecommendations]);
+
   // Loading state (including hydration)
-  if (!isHydrated || isLoading) {
+  if (!isHydrated || isInitialLoading) {
     return (
       <div className="flex h-full items-center justify-center bg-slate-50">
         <div className="text-center">
@@ -305,14 +264,14 @@ export default function GroupPage() {
   }
 
   // Error state
-  if (error) {
+  if (error || recommendationsError) {
     return (
       <div className="flex h-full flex-col items-center justify-center bg-slate-50 p-6 text-center">
         <div className="text-5xl mb-4">😕</div>
         <h2 className="text-xl font-bold text-slate-900 mb-2">Something went wrong</h2>
-        <p className="text-slate-600 mb-6">{error}</p>
+        <p className="text-slate-600 mb-6">{error || recommendationsError}</p>
         <button
-          onClick={() => fetchData()}
+          onClick={handleRetry}
           className="bg-rose-500 text-white px-6 py-3 rounded-full font-bold shadow-lg"
         >
           Try Again
@@ -381,12 +340,15 @@ export default function GroupPage() {
     );
   }
 
-  // Convert responses to component format
-  const currentListing = currentResponse ? toComponentListing(currentResponse) : null;
-  const nextListing = prefetchedResponse ? toComponentListing(prefetchedResponse) : null;
+  // Get current and next listings from recommendations
+  const currentRec = recommendations[currentIndex];
+  const nextRec = recommendations[currentIndex + 1];
+  
+  const currentListingDisplay = currentRec ? toComponentListing(currentRec) : null;
+  const nextListingDisplay = nextRec ? toComponentListing(nextRec) : null;
 
   // No listings / all caught up
-  if (!currentListing) {
+  if (!currentListingDisplay) {
     return (
       <div className="min-h-full flex flex-col items-center justify-center bg-slate-50 p-6 text-center">
         <div className="text-6xl mb-4">🎉</div>
@@ -408,16 +370,16 @@ export default function GroupPage() {
       <main className="flex-1 flex items-center justify-center p-4 overflow-hidden relative" style={{ paddingBottom: '80px' }}>
         <div className="relative w-full max-w-md h-[65vh]">
           {/* Background Card - animated via motion values */}
-          {nextListing && (
+          {nextListingDisplay && (
             <motion.div
-              key={`bg-${nextListing.id}`}
+              key={`bg-${nextListingDisplay.id}`}
               className="absolute inset-0"
               style={{ scale: bgScale, y: bgY }}
             >
               <VotingCard 
-                listing={nextListing}
+                listing={nextListingDisplay}
                 onVote={() => {}} // No-op for background card
-                location={nextListing.location}
+                location={nextListingDisplay.location}
                 isBackground={true}
               />
             </motion.div>
@@ -425,14 +387,24 @@ export default function GroupPage() {
           
           {/* Active Card - include voteCount in key to force re-mount after each vote */}
           <VotingCard 
-            key={`${currentListing.id}-${voteCount}`}
-            listing={currentListing}
+            key={`${currentListingDisplay.id}-${voteCount}`}
+            listing={currentListingDisplay}
             onVote={handleVote}
             onDragProgress={handleDragProgress}
             onVoteStart={handleVoteStart}
-            otherVotes={currentResponse?.other_votes ? toOtherVotes(currentResponse.other_votes) : []}
-            location={currentListing.location}
+            otherVotes={currentRec?.other_votes ? toOtherVotes(currentRec.other_votes) : []}
+            location={currentListingDisplay.location}
           />
+          
+          {/* Loading indicator when fetching more */}
+          {isLoadingRecommendations && (
+            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2">
+              <div className="bg-white/90 backdrop-blur px-3 py-1 rounded-full shadow text-xs text-slate-500 flex items-center gap-2">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                Loading more...
+              </div>
+            </div>
+          )}
         </div>
       </main>
     </div>

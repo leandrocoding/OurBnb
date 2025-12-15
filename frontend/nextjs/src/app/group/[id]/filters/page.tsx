@@ -12,7 +12,7 @@ import 'rc-slider/assets/index.css';
 export default function FiltersPage() {
   const { id } = useParams();
   const router = useRouter();
-  const { currentUser, isHydrated } = useAppStore();
+  const { currentUser, isHydrated, invalidateRecommendations } = useAppStore();
 
   const [priceMin, setPriceMin] = useState(0);
   const [priceMax, setPriceMax] = useState(1000);
@@ -106,6 +106,9 @@ export default function FiltersPage() {
         property_type: roomType,
         amenities: selectedAmenities,
       });
+      
+      // Invalidate recommendations so they get re-fetched with new filters
+      invalidateRecommendations();
       
       setSaveSuccess(true);
       setTimeout(() => {

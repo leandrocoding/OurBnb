@@ -8,9 +8,8 @@ from constants import (
     PAGE_COUNT_AFTER_FILTER_SET,
     LEADERBOARD_LIMIT,
 )
-from scoring import bnb_scorer, ScoredBnb
+from scoring import get_leaderboard_scores, get_recommendation_scores
 from models.schemas import (
-    TestData,
     CreateGroupRequest,
     CreateGroupResponse,
     GroupInfoResponse,
@@ -53,8 +52,6 @@ from models.schemas import (
     GroupSearchResponse,
     SearchStatusDestination,
     SearchStatusResponse,
-    DestinationSuggestion,
-    DestinationAutocompleteResponse,
     # Demo
     DemoGroupInfo,
     DemoAllGroupsResponse,
@@ -200,8 +197,8 @@ async def get_leaderboard_data_for_ws(group_id: int) -> dict:
         cursor.execute("SELECT COUNT(*) as count FROM bnbs WHERE group_id = %s", (group_id,))
         total_listings = cursor.fetchone()["count"]
         
-        # Get scored bnbs using the scorer
-        scored_bnbs = bnb_scorer.get_scored_bnbs(group_id, limit=LEADERBOARD_LIMIT)
+        # Get scored bnbs for leaderboard
+        scored_bnbs = get_leaderboard_scores(group_id, limit=LEADERBOARD_LIMIT)
         
         if not scored_bnbs:
             return {
@@ -770,12 +767,12 @@ def _get_next_listing_for_user(cursor, user_id: int, group_id: int, exclude_airb
     # Convert to set 
     exclude_set = set(exclude_airbnb_ids) if exclude_airbnb_ids else set()
     
-    # Get scored unvoted bnbs for this user (fetch enough to skip excluded ones)
+    # Get personalized recommendations for this user
     # Fetch len(exclude_set) + 1 to ensure we have at least one non-excluded result
     limit = len(exclude_set) + 1 if exclude_set else 1
-    scored_bnbs = bnb_scorer.get_scored_bnbs(group_id, exclude_voted_by_user_id=user_id, limit=limit)
+    scored_bnbs = get_recommendation_scores(group_id, user_id, limit=limit)
     
-    # Filter out excluded listings
+    # Filter out excluded listings (already shown in frontend)
     if exclude_set:
         scored_bnbs = [bnb for bnb in scored_bnbs if bnb.airbnb_id not in exclude_set]
     
@@ -957,8 +954,8 @@ async def get_group_leaderboard(group_id: int):
         if total_listings == 0:
             return LeaderboardResponse(entries=[], total_listings=0, total_users=total_users)
         
-        # Get scored bnbs using the scorer
-        scored_bnbs = bnb_scorer.get_scored_bnbs(group_id, limit=LEADERBOARD_LIMIT)
+        # Get scored bnbs for leaderboard
+        scored_bnbs = get_leaderboard_scores(group_id, limit=LEADERBOARD_LIMIT)
         
         # Get airbnb_ids for batch queries
         airbnb_ids = [bnb.airbnb_id for bnb in scored_bnbs]
@@ -1421,7 +1418,7 @@ async def get_user_next_to_vote(
 @router.get("/user/{user_id}/recommendations", response_model=RecommendationsResponse, tags=["Voting"])
 async def get_user_recommendations(
     user_id: int,
-    limit: int = Query(default=20, le=50),
+    limit: int = Query(default=10, le=50),
     exclude_ids: str = Query(default=None, description="Comma-separated list of airbnb_ids to exclude"),
 ):
     """
@@ -1432,7 +1429,7 @@ async def get_user_recommendations(
     
     Args:
         user_id: The user requesting recommendations
-        limit: Maximum number of recommendations to return (default 20, max 50)
+        limit: Maximum number of recommendations to return (default 10, max 50)
         exclude_ids: Comma-separated airbnb_ids to also exclude (e.g., already shown in frontend)
     
     Returns:
@@ -1447,10 +1444,18 @@ async def get_user_recommendations(
         
         group_id = user["group_id"]
         
-        # Get scored unvoted bnbs for this user
-        scored_bnbs = bnb_scorer.get_scored_bnbs(group_id, exclude_voted_by_user_id=user_id)
+        # Get group info for booking link generation
+        cursor.execute(
+            """SELECT adults, children, infants, pets, date_range_start, date_range_end 
+               FROM groups WHERE id = %s""",
+            (group_id,),
+        )
+        group = cursor.fetchone()
         
-        # Apply exclude_ids filter if provided
+        # Get personalized recommendations for this user (excludes already voted)
+        scored_bnbs = get_recommendation_scores(group_id, user_id)
+        
+        # Apply exclude_ids filter if provided (already shown in frontend buffer)
         if exclude_ids:
             exclude_set = set(exclude_ids.split(","))
             scored_bnbs = [bnb for bnb in scored_bnbs if bnb.airbnb_id not in exclude_set]
@@ -1473,6 +1478,14 @@ async def get_user_recommendations(
         images_by_bnb, amenities_by_bnb = _get_images_and_amenities_for_bnbs(cursor, group_id, airbnb_ids)
         votes_by_bnb = _get_other_votes_for_bnbs(cursor, group_id, airbnb_ids, exclude_user_id=user_id)
         
+        # Build booking link parameters from group data
+        check_in = group["date_range_start"].strftime("%Y-%m-%d")
+        check_out = group["date_range_end"].strftime("%Y-%m-%d")
+        adults = group["adults"]
+        children = group["children"]
+        infants = group["infants"]
+        pets = group["pets"]
+        
         # Build response
         recommendations = []
         for bnb in scored_bnbs:
@@ -1488,6 +1501,15 @@ async def get_user_recommendations(
             
             # Get location name (extract first part before comma for display)
             location = bnb.location_name.split(',')[0] if bnb.location_name else None
+            
+            # Build Airbnb booking link
+            booking_link = f"https://www.airbnb.ch/rooms/{airbnb_id}?adults={adults}&check_in={check_in}&check_out={check_out}"
+            if children > 0:
+                booking_link += f"&children={children}"
+            if infants > 0:
+                booking_link += f"&infants={infants}"
+            if pets > 0:
+                booking_link += f"&pets={pets}"
             
             recommendations.append(RecommendationListing(
                 airbnb_id=airbnb_id,
@@ -1505,6 +1527,7 @@ async def get_user_recommendations(
                 score=bnb.score,
                 filter_matches=bnb.filter_matches,
                 other_votes=votes_by_bnb.get(airbnb_id, []),
+                booking_link=booking_link,
             ))
         
         return RecommendationsResponse(

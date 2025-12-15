@@ -4,11 +4,6 @@ from datetime import date, datetime
 from pydantic import BaseModel
 
 
-class TestData(BaseModel):
-    some_text: Optional[str] = None
-    random_number: Optional[str] = None
-
-
 # Group schemas
 class CreateGroupRequest(BaseModel):
     group_name: str
@@ -362,18 +357,6 @@ class SearchStatusResponse(BaseModel):
     overall_progress_percent: float
 
 
-class DestinationSuggestion(BaseModel):
-    """Autocomplete suggestion"""
-    name: str
-    # Could add more fields like country, popularity, etc.
-
-
-class DestinationAutocompleteResponse(BaseModel):
-    """Autocomplete results"""
-    query: str
-    suggestions: List[DestinationSuggestion]
-
-
 # =============================================================================
 # Demo Schemas
 # =============================================================================
@@ -413,6 +396,8 @@ class RecommendationListing(BaseModel):
     filter_matches: int
     # Other users' votes on this listing
     other_votes: List[GroupVote] = []
+    # Booking link with all parameters
+    booking_link: Optional[str] = None
 
 
 class RecommendationsResponse(BaseModel):

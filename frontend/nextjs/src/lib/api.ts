@@ -242,6 +242,33 @@ export interface VoteProgressResponse {
   completion_percent: number;
 }
 
+// ============ Recommendations Types ============
+
+export interface RecommendationListing {
+  airbnb_id: string;
+  title: string;
+  price: number;
+  rating?: number;
+  review_count?: number;
+  location?: string;
+  images: string[];
+  bedrooms?: number;
+  beds?: number;
+  bathrooms?: number;
+  property_type?: string;
+  amenities: number[];
+  score: number;
+  filter_matches: number;
+  other_votes: GroupVote[];
+  booking_link?: string;
+}
+
+export interface RecommendationsResponse {
+  recommendations: RecommendationListing[];
+  total_remaining: number;
+  has_more: boolean;
+}
+
 // ============ API Functions ============
 
 async function fetchApi<T>(
@@ -342,6 +369,21 @@ export async function getNextToVote(
 ): Promise<NextToVoteResponse> {
   const params = excludeAirbnbIds?.length ? `?exclude_ids=${excludeAirbnbIds.join(',')}` : '';
   return fetchApi<NextToVoteResponse>(`/api/user/${userId}/next-to-vote${params}`);
+}
+
+// ============ Recommendations API ============
+
+export async function getRecommendations(
+  userId: number,
+  limit: number = 10,
+  excludeIds?: string[]
+): Promise<RecommendationsResponse> {
+  const params = new URLSearchParams();
+  params.set('limit', limit.toString());
+  if (excludeIds?.length) {
+    params.set('exclude_ids', excludeIds.join(','));
+  }
+  return fetchApi<RecommendationsResponse>(`/api/user/${userId}/recommendations?${params.toString()}`);
 }
 
 // ============ Leaderboard API ============
