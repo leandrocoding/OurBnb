@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import { useAppStore } from '../../../../store/useAppStore';
 import { getLeaderboard, getLeaderboardWebSocketUrl, LeaderboardEntry, LeaderboardResponse } from '../../../../lib/api';
 import Link from 'next/link';
-import { Trophy, Heart, ThumbsUp, AlertCircle, Loader2, Users, RefreshCw, ExternalLink, MapPin } from 'lucide-react';
+import { Trophy, ThumbsUp, ThumbsDown, Ban, AlertCircle, Loader2, Users, RefreshCw, ExternalLink, MapPin } from 'lucide-react';
 
 export default function LeaderboardPage() {
   const { id } = useParams();
@@ -275,24 +275,19 @@ export default function LeaderboardPage() {
                 </div>
                 
                 <div className="flex gap-2 flex-wrap">
-                  {entry.votes.love_count > 0 && (
-                    <div className="flex items-center gap-1 text-xs font-medium text-rose-500 bg-rose-50 px-2 py-1 rounded">
-                      <Heart className="w-3 h-3 fill-current" /> {entry.votes.love_count}
-                    </div>
-                  )}
                   {entry.votes.super_love_count > 0 && (
-                    <div className="flex items-center gap-1 text-xs font-medium text-pink-500 bg-pink-50 px-2 py-1 rounded">
-                      <Heart className="w-3 h-3 fill-current" /> {entry.votes.super_love_count} Super
+                    <div className="flex items-center gap-1 text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-1 rounded">
+                      <ThumbsUp className="w-3 h-3" /> {entry.votes.super_love_count}
                     </div>
                   )}
                   {entry.votes.ok_count > 0 && (
-                    <div className="flex items-center gap-1 text-xs font-medium text-blue-500 bg-blue-50 px-2 py-1 rounded">
-                      <ThumbsUp className="w-3 h-3" /> {entry.votes.ok_count}
+                    <div className="flex items-center gap-1 text-xs font-medium text-orange-500 bg-orange-50 px-2 py-1 rounded">
+                      <ThumbsDown className="w-3 h-3" /> {entry.votes.ok_count}
                     </div>
                   )}
                   {entry.votes.veto_count > 0 && (
                     <div className="flex items-center gap-1 text-xs font-medium text-red-500 bg-red-50 px-2 py-1 rounded">
-                      <AlertCircle className="w-3 h-3" /> {entry.votes.veto_count} veto
+                      <Ban className="w-3 h-3" /> {entry.votes.veto_count}
                     </div>
                   )}
                 </div>

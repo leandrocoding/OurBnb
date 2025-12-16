@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAppStore } from '../../../store/useAppStore';
-import { VotingCard, preloadImages } from '../../../components/VotingCard';
+import { VotingCard, preloadImages, PriceDisplayMode } from '../../../components/VotingCard';
 import { submitVote, getGroupInfo, GroupInfo, GroupVote, RecommendationListing } from '../../../lib/api';
 import { VoteValue, Listing, OtherVote } from '../../../types';
 import { Loader2, Search, Home } from 'lucide-react';
@@ -27,6 +27,15 @@ function toComponentListing(rec: RecommendationListing): Listing {
     bookingLink: rec.booking_link,
     location: rec.location,
   };
+}
+
+// Calculate number of nights between two dates
+function calculateNights(dateStart: string, dateEnd: string): number {
+  const start = new Date(dateStart);
+  const end = new Date(dateEnd);
+  const diffTime = Math.abs(end.getTime() - start.getTime());
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return Math.max(1, diffDays);
 }
 
 // Convert API other_votes to OtherVote format
@@ -72,6 +81,8 @@ export default function GroupPage() {
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
   // Vote counter to force VotingCard re-mount after each vote (resets isAnimating state)
   const [voteCount, setVoteCount] = useState(0);
+  // Price display mode - persists across card changes
+  const [priceMode, setPriceMode] = useState<PriceDisplayMode>('total');
   
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const mountedRef = useRef(true);
@@ -381,6 +392,9 @@ export default function GroupPage() {
                 onVote={() => {}} // No-op for background card
                 location={nextListingDisplay.location}
                 isBackground={true}
+                numberOfNights={groupInfo ? calculateNights(groupInfo.date_start, groupInfo.date_end) : 1}
+                numberOfAdults={groupInfo?.adults || 1}
+                priceMode={priceMode}
               />
             </motion.div>
           )}
@@ -394,6 +408,10 @@ export default function GroupPage() {
             onVoteStart={handleVoteStart}
             otherVotes={currentRec?.other_votes ? toOtherVotes(currentRec.other_votes) : []}
             location={currentListingDisplay.location}
+            numberOfNights={groupInfo ? calculateNights(groupInfo.date_start, groupInfo.date_end) : 1}
+            numberOfAdults={groupInfo?.adults || 1}
+            priceMode={priceMode}
+            onPriceModeChange={setPriceMode}
           />
           
           {/* Loading indicator when fetching more */}

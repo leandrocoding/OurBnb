@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect } from 'react';
-import { motion, useMotionValue, useTransform, useAnimate } from 'framer-motion';
-import { Listing, VoteValue, VOTE_VETO, VOTE_OK, VOTE_LOVE, OtherVote, voteNumberToType } from '../types';
-import { X, ThumbsUp, Heart, Star, ChevronLeft, ChevronRight, MapPin, ExternalLink } from 'lucide-react';
+import { motion, useMotionValue, useTransform, useAnimate, AnimatePresence } from 'framer-motion';
+import { Listing, VoteValue, VOTE_VETO, VOTE_OK, VOTE_SUPER_LOVE, OtherVote, voteNumberToType } from '../types';
+import { ThumbsDown, ThumbsUp, Star, ChevronLeft, ChevronRight, MapPin, ExternalLink, Ban, X } from 'lucide-react';
 
 // Preload a single image and return a promise
 function preloadImage(src: string): Promise<void> {
@@ -24,20 +24,28 @@ export function preloadImages(images: string[]): void {
   });
 }
 
+export type PriceDisplayMode = 'total' | 'perNight' | 'perPerson';
+
 interface VotingCardProps {
   listing: Listing;
-  onVote: (vote: VoteValue) => void;
+  onVote: (vote: VoteValue, reason?: string) => void;
   onDragProgress?: (progress: number) => void; // 0 = centered, 1 = at vote threshold
   onVoteStart?: () => void; // Called immediately when vote animation starts
   otherVotes?: OtherVote[];
   location?: string;
   isBackground?: boolean;
+  numberOfNights?: number;
+  numberOfAdults?: number;
+  priceMode?: PriceDisplayMode;
+  onPriceModeChange?: (mode: PriceDisplayMode) => void;
 }
 
-export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, otherVotes = [], location, isBackground = false }: VotingCardProps) {
+export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, otherVotes = [], location, isBackground = false, numberOfNights = 1, numberOfAdults = 1, priceMode = 'total', onPriceModeChange }: VotingCardProps) {
   const [imageIndex, setImageIndex] = useState(0);
   const [scope, animate] = useAnimate();
   const [isAnimating, setIsAnimating] = useState(false);
+  const [showVetoModal, setShowVetoModal] = useState(false);
+  const [vetoReason, setVetoReason] = useState('');
   
   // Preload all images for this listing when it mounts
   useEffect(() => {
@@ -63,15 +71,55 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
   const nopeOpacity = useTransform(x, [-150, -20], [1, 0]);
   const likeOpacity = useTransform(x, [20, 150], [0, 1]);
 
-  // Animate card off screen and then call onVote
-  const handleVote = async (vote: VoteValue) => {
+  // Handle veto button click - show modal for reason
+  const handleVetoClick = () => {
     if (isAnimating) return;
+    setShowVetoModal(true);
+  };
+
+  // Submit veto with reason
+  const handleVetoSubmit = async () => {
+    if (isAnimating || !vetoReason.trim()) return;
+    setShowVetoModal(false);
     setIsAnimating(true);
     
     // Notify parent immediately so background card can start animating
     onVoteStart?.();
     
-    const direction = vote === VOTE_VETO ? -1 : 1;
+    await animate(scope.current, {
+      scale: 0.8,
+      opacity: 0,
+    }, {
+      duration: 0.3,
+      ease: "easeOut",
+    });
+    
+    onVote(VOTE_VETO, vetoReason.trim());
+    setVetoReason('');
+  };
+
+  // Cancel veto
+  const handleVetoCancel = () => {
+    setShowVetoModal(false);
+    setVetoReason('');
+  };
+
+  // Animate card off screen and then call onVote
+  const handleVote = async (vote: VoteValue) => {
+    if (isAnimating) return;
+    
+    // For veto, show modal instead
+    if (vote === VOTE_VETO) {
+      handleVetoClick();
+      return;
+    }
+    
+    setIsAnimating(true);
+    
+    // Notify parent immediately so background card can start animating
+    onVoteStart?.();
+    
+    const direction = vote === VOTE_OK ? -1 : 1; // Dislike left, Like right
     const exitX = direction * window.innerWidth;
     const exitRotation = direction * 20;
     
@@ -110,6 +158,42 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
     }).format(price);
   };
 
+  // Calculate prices based on mode
+  const getPriceDisplay = () => {
+    const totalPrice = listing.price;
+    const pricePerNight = totalPrice / Math.max(1, numberOfNights);
+    const pricePerPerson = pricePerNight / Math.max(1, numberOfAdults);
+
+    switch (priceMode) {
+      case 'total':
+        return {
+          price: formatPrice(totalPrice),
+          label: 'total',
+        };
+      case 'perNight':
+        return {
+          price: formatPrice(pricePerNight),
+          label: '/night',
+        };
+      case 'perPerson':
+        return {
+          price: formatPrice(pricePerPerson),
+          label: '/night/person',
+        };
+    }
+  };
+
+  // Toggle price display mode
+  const togglePriceMode = () => {
+    const nextMode: PriceDisplayMode = 
+      priceMode === 'total' ? 'perNight' : 
+      priceMode === 'perNight' ? 'perPerson' : 
+      'total';
+    onPriceModeChange?.(nextMode);
+  };
+
+  const priceDisplay = getPriceDisplay();
+
   // Format rating
   const formatRating = (rating?: number) => {
     if (!rating) return 'New';
@@ -141,12 +225,13 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
         <div className="p-5 flex flex-col flex-1">
             <div className="flex justify-between items-end mb-2">
                 <div>
-                    <div className="text-3xl font-bold text-slate-900">{formatPrice(listing.price)}</div>
+                    <span className="text-3xl font-bold text-slate-900">{priceDisplay.price}</span>
+                    <span className="text-sm text-slate-500 font-medium ml-1.5">{priceDisplay.label}</span>
                 </div>
                 <div className="flex items-center gap-1 text-slate-700 font-bold text-lg">
                     <Star className="w-5 h-5 fill-yellow-400 text-yellow-400" />
                     {formatRating(listing.rating)}
-                    {listing.reviewCount && listing.reviewCount > 0 && (
+                    {listing.reviewCount != null && listing.reviewCount > 0 && (
                       <span className="text-slate-400 font-normal text-sm">({listing.reviewCount})</span>
                     )}
                 </div>
@@ -158,15 +243,16 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
                 {listing.bathrooms && <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">{listing.bathrooms} Bath</span>}
             </div>
             
-            <div className="mt-auto flex items-center justify-center gap-6 pt-2">
-                 <div className="w-14 h-14 rounded-full bg-white border border-slate-200 shadow-lg flex items-center justify-center text-slate-400">
-                     <X className="w-6 h-6" />
+            <div className="mt-auto flex items-center justify-center gap-4 pt-2">
+                 <div className="w-14 h-14 rounded-full bg-white border-2 border-orange-200 shadow-lg flex items-center justify-center text-orange-400">
+                     <ThumbsDown className="w-6 h-6" />
                  </div>
-                 <div className="w-14 h-14 rounded-full bg-white border border-slate-200 shadow-lg flex items-center justify-center text-yellow-500">
+                 <div className="h-14 px-5 rounded-full bg-red-400 shadow-lg flex items-center justify-center gap-2 text-white font-bold text-sm uppercase tracking-wider">
+                     <Ban className="w-5 h-5" />
+                     VETO
+                 </div>
+                 <div className="w-14 h-14 rounded-full bg-white border-2 border-emerald-200 shadow-lg flex items-center justify-center text-emerald-400">
                      <ThumbsUp className="w-6 h-6" />
-                 </div>
-                 <div className="w-16 h-16 rounded-full bg-rose-500 shadow-xl shadow-rose-500/30 flex items-center justify-center text-white">
-                     <Heart className="w-8 h-8 fill-current" />
                  </div>
             </div>
         </div>
@@ -181,8 +267,8 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
       drag="x"
       dragConstraints={{ left: 0, right: 0 }}
       onDragEnd={(e, { offset, velocity }) => {
-        if (offset.x > 100) handleVote(VOTE_OK);
-        else if (offset.x < -100) handleVote(VOTE_VETO);
+        if (offset.x > 100) handleVote(VOTE_SUPER_LOVE); // Swipe right = like
+        else if (offset.x < -100) handleVote(VOTE_OK); // Swipe left = dislike
       }}
       className="absolute top-0 left-0 w-full h-full bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col z-10"
     >
@@ -214,13 +300,13 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
       
       {/* Drag Feedback Overlays */}
       <motion.div style={{ opacity: likeOpacity }} className="absolute top-8 right-8 z-30 pointer-events-none transform rotate-12">
-          <div className="border-4 border-green-500 text-green-500 font-bold text-4xl px-4 py-2 rounded-lg bg-white/20 backdrop-blur-sm uppercase tracking-wider">
+          <div className="border-4 border-emerald-500 text-emerald-500 font-bold text-4xl px-4 py-2 rounded-lg bg-white/20 backdrop-blur-sm uppercase tracking-wider">
               LIKE
           </div>
       </motion.div>
       <motion.div style={{ opacity: nopeOpacity }} className="absolute top-8 left-8 z-30 pointer-events-none transform -rotate-12">
-          <div className="border-4 border-red-500 text-red-500 font-bold text-4xl px-4 py-2 rounded-lg bg-white/20 backdrop-blur-sm uppercase tracking-wider">
-              NOPE
+          <div className="border-4 border-orange-500 text-orange-500 font-bold text-4xl px-4 py-2 rounded-lg bg-white/20 backdrop-blur-sm uppercase tracking-wider">
+              DISLIKE
           </div>
       </motion.div>
 
@@ -279,13 +365,17 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
       {/* Details */}
       <div className="p-5 flex flex-col flex-1">
         <div className="flex justify-between items-end mb-2">
-            <div>
-                <div className="text-3xl font-bold text-slate-900">{formatPrice(listing.price)}</div>
+            <div 
+              onClick={togglePriceMode}
+              className="cursor-pointer group"
+            >
+                <span className="text-3xl font-bold text-slate-900">{priceDisplay.price}</span>
+                <span className="text-sm text-slate-500 font-medium ml-1.5">{priceDisplay.label}</span>
             </div>
             <div className="flex items-center gap-1 text-slate-700 font-bold text-lg">
                 <Star className="w-5 h-5 fill-yellow-400 text-yellow-400" />
                 {formatRating(listing.rating)}
-                {listing.reviewCount && listing.reviewCount > 0 && (
+                {listing.reviewCount != null && listing.reviewCount > 0 && (
                   <span className="text-slate-400 font-normal text-sm">({listing.reviewCount})</span>
                 )}
             </div>
@@ -298,32 +388,98 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
             {listing.bathrooms && <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">{listing.bathrooms} Bath</span>}
         </div>
 
-        <div className="mt-auto flex items-center justify-center gap-6 pt-2">
-             <button 
-                onClick={() => handleVote(VOTE_VETO)}
-                disabled={isAnimating}
-                className="w-14 h-14 rounded-full bg-white border border-slate-200 shadow-lg flex items-center justify-center text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors disabled:opacity-50"
-             >
-                 <X className="w-6 h-6" />
-             </button>
-
+        <div className="mt-auto flex items-center justify-center gap-4 pt-2">
+             {/* Dislike button (left) - backend id 1 */}
              <button 
                 onClick={() => handleVote(VOTE_OK)}
-                disabled={isAnimating}
-                className="w-14 h-14 rounded-full bg-white border border-slate-200 shadow-lg flex items-center justify-center text-yellow-500 hover:bg-yellow-50 transition-colors disabled:opacity-50"
+                disabled={isAnimating || showVetoModal}
+                className="w-14 h-14 rounded-full bg-white border-2 border-orange-200 shadow-lg flex items-center justify-center text-orange-500 hover:bg-orange-50 hover:border-orange-300 hover:scale-105 transition-all disabled:opacity-50"
+             >
+                 <ThumbsDown className="w-6 h-6" />
+             </button>
+
+             {/* Veto button (middle) - backend id 0 */}
+             <button 
+                onClick={handleVetoClick}
+                disabled={isAnimating || showVetoModal}
+                className="h-14 px-5 rounded-full bg-red-500 shadow-lg shadow-red-500/25 flex items-center justify-center gap-2 text-white font-bold text-sm uppercase tracking-wider hover:bg-red-600 hover:scale-105 transition-all disabled:opacity-50"
+             >
+                 <Ban className="w-5 h-5" />
+                 VETO
+             </button>
+
+             {/* Like button (right) - backend id 3 */}
+             <button 
+                onClick={() => handleVote(VOTE_SUPER_LOVE)}
+                disabled={isAnimating || showVetoModal}
+                className="w-14 h-14 rounded-full bg-white border-2 border-emerald-200 shadow-lg flex items-center justify-center text-emerald-500 hover:bg-emerald-50 hover:border-emerald-300 hover:scale-105 transition-all disabled:opacity-50"
              >
                  <ThumbsUp className="w-6 h-6" />
              </button>
-
-             <button 
-                onClick={() => handleVote(VOTE_LOVE)}
-                disabled={isAnimating}
-                className="w-16 h-16 rounded-full bg-rose-500 shadow-xl shadow-rose-500/30 flex items-center justify-center text-white hover:bg-rose-600 transition-colors disabled:opacity-50"
-             >
-                 <Heart className="w-8 h-8 fill-current" />
-             </button>
         </div>
       </div>
+
+      {/* Veto Reason Modal */}
+      <AnimatePresence>
+        {showVetoModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm rounded-3xl"
+            onClick={handleVetoCancel}
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-2xl p-6 mx-4 w-full max-w-sm shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2 text-red-500">
+                  <Ban className="w-6 h-6" />
+                  <h3 className="text-lg font-bold">Veto this listing</h3>
+                </div>
+                <button
+                  onClick={handleVetoCancel}
+                  className="p-1 rounded-full hover:bg-slate-100 transition-colors"
+                >
+                  <X className="w-5 h-5 text-slate-400" />
+                </button>
+              </div>
+              
+              <p className="text-slate-600 text-sm mb-4">
+                This listing won&apos;t be shown to anyone else in your group. Please provide a reason:
+              </p>
+              
+              <textarea
+                value={vetoReason}
+                onChange={(e) => setVetoReason(e.target.value)}
+                placeholder="Type a reason..."
+                className="w-full h-24 px-4 py-3 border border-slate-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-slate-700 placeholder:text-slate-400"
+                autoFocus
+              />
+              
+              <div className="flex gap-3 mt-4">
+                <button
+                  onClick={handleVetoCancel}
+                  className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 font-medium hover:bg-slate-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleVetoSubmit}
+                  disabled={!vetoReason.trim()}
+                  className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Confirm Veto
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
