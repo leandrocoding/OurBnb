@@ -19,48 +19,23 @@ from models.schemas import (
     JoinGroupResponse,
     UserFilter,
     FilterResponse,
-    TriggerSearchRequest,
-    TriggerSearchResponse,
     PropertyInfo,
     GroupListingsResponse,
     VoteRequest,
-    VoteResponse,
     VoteWithNextResponse,
     GroupVote,
-    GroupVotesResponse,
     LeaderboardEntry,
     LeaderboardVoteSummary,
     LeaderboardResponse,
-    # User Management
-    UserProfileResponse,
-    UpdateUserRequest,
-    UserVoteInfo,
-    UserVotesResponse,
-    # Group Management
-    UpdateGroupRequest,
-    AddDestinationRequest,
     UserVoteProgress,
-    GroupStatsResponse,
-    # Voting Queue (kept for backward compatibility)
     NextToVoteResponse,
-    VoteProgressResponse,
-    # Listing Detail
-    ListingDetailResponse,
-    ListingVotesResponse,
-    # Search & Discovery
-    GroupSearchRequest,
-    GroupSearchResponse,
-    SearchStatusDestination,
-    SearchStatusResponse,
-    # Demo
     DemoGroupInfo,
     DemoAllGroupsResponse,
-    # Recommendations (new batch fetching)
     RecommendationListing,
     RecommendationsResponse,
 )
 from db import get_cursor
-from scrape_utils import trigger_search_for_user_destinations, trigger_search_job, trigger_listing_inquiry
+from scrape_utils import trigger_search_for_user_destinations
 import httpx
 import os
 
@@ -432,7 +407,7 @@ async def get_all_groups_for_demo():
 
 @router.get("/group/info/{group_id}", response_model=GroupInfoResponse, tags=["Groups"])
 async def get_group_info(group_id: int):
-    """Get group information by group ID."""
+    """Get group information by group ID, including vote progress per user."""
     with get_cursor() as cursor:
         # Get group info
         cursor.execute(
@@ -472,6 +447,34 @@ async def get_group_info(group_id: int):
             UserInfo(id=user["id"], nickname=user["nickname"], avatar=user["avatar"])
             for user in users
         ]
+        
+        # Get total listings count
+        cursor.execute("SELECT COUNT(*) as count FROM bnbs WHERE group_id = %s", (group_id,))
+        total_listings = cursor.fetchone()["count"]
+        
+        # Get vote counts per user
+        cursor.execute(
+            """
+            SELECT u.id as user_id, u.nickname, COUNT(v.airbnb_id) as votes_cast
+            FROM users u
+            LEFT JOIN votes v ON v.user_id = u.id AND v.group_id = %s
+            WHERE u.group_id = %s
+            GROUP BY u.id, u.nickname
+            ORDER BY u.nickname
+            """,
+            (group_id, group_id),
+        )
+        user_votes = cursor.fetchall()
+        
+        user_progress = [
+            UserVoteProgress(
+                user_id=u["user_id"],
+                nickname=u["nickname"],
+                votes_cast=u["votes_cast"] or 0,
+                total_listings=total_listings,
+            )
+            for u in user_votes
+        ]
     
     return GroupInfoResponse(
         group_id=group["id"],
@@ -486,6 +489,8 @@ async def get_group_info(group_id: int):
         price_range_min=group["price_range_min"],
         price_range_max=group["price_range_max"],
         users=user_list,
+        total_listings=total_listings,
+        user_progress=user_progress,
     )
 
 
@@ -640,36 +645,6 @@ async def set_filter(u_id: int, filter_data: UserFilter):
         updated_at=filter_row["updated_at"],
         amenities=filter_data.amenities,
     )
-
-
-# @router.post("/search/trigger", response_model=TriggerSearchResponse)
-# async def trigger_search(request: TriggerSearchRequest):
-#     """Trigger a search job for the scraper worker."""
-#     with get_cursor() as cursor:
-#         # Verify user exists
-#         cursor.execute("SELECT id FROM users WHERE id = %s", (request.user_id,))
-#         user = cursor.fetchone()
-#         if not user:
-#             raise HTTPException(status_code=404, detail="User not found")
-        
-#         # Verify destination exists
-#         cursor.execute("SELECT id FROM destinations WHERE id = %s", (request.destination_id,))
-#         destination = cursor.fetchone()
-#         if not destination:
-#             raise HTTPException(status_code=404, detail="Destination not found")
-    
-#     # Trigger the search job
-#     job_id = trigger_search_job(
-#         user_id=request.user_id,
-#         destination_id=request.destination_id,
-#         page_start=request.page_start,
-#         page_end=request.page_end,
-#     )
-    
-#     return TriggerSearchResponse(
-#         job_id=job_id,
-#         message=f"Search job triggered for user {request.user_id} and destination {request.destination_id}"
-#     )
 
 
 
@@ -942,45 +917,6 @@ def _get_next_listing_for_user(cursor, user_id: int, group_id: int, exclude_airb
         total_listings=total_listings,
     )
 
-# TODO Remove this should not be needed as we should have all the info in the leaderboard page. 
-@router.get("/group/{group_id}/votes", response_model=GroupVotesResponse, tags=["Voting"])
-async def get_group_votes(group_id: int):
-    """Get all votes for bnbs in a group."""
-    with get_cursor() as cursor:
-        # Verify group exists
-        cursor.execute("SELECT id FROM groups WHERE id = %s", (group_id,))
-        group = cursor.fetchone()
-        
-        if not group:
-            raise HTTPException(status_code=404, detail="Group not found")
-        
-        # Get all votes for this group
-        cursor.execute(
-            """
-            SELECT v.user_id, u.nickname as user_name, v.airbnb_id, v.vote, v.reason
-            FROM votes v
-            INNER JOIN users u ON u.id = v.user_id
-            WHERE v.group_id = %s
-            ORDER BY v.created_at DESC
-            """,
-            (group_id,),
-        )
-        votes = cursor.fetchall()
-    
-    return GroupVotesResponse(
-        votes=[
-            GroupVote(
-                user_id=v["user_id"],
-                user_name=v["user_name"],
-                airbnb_id=v["airbnb_id"],
-                vote=v["vote"],
-                reason=v["reason"],
-            )
-            for v in votes
-        ]
-    )
-
-
 @router.get("/group/{group_id}/leaderboard", response_model=LeaderboardResponse, tags=["Leaderboard"])
 async def get_group_leaderboard(group_id: int):
     """
@@ -1098,88 +1034,6 @@ async def get_group_leaderboard(group_id: int):
 # USER MANAGEMENT ENDPOINTS
 # =============================================================================
 
-@router.get("/user/{user_id}", response_model=UserProfileResponse, tags=["Users"])
-async def get_user_profile(user_id: int):
-    """Get user profile with group info."""
-    with get_cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT u.id, u.nickname, u.avatar, u.group_id, u.joined_at, g.name as group_name
-            FROM users u
-            JOIN groups g ON g.id = u.group_id
-            WHERE u.id = %s
-            """,
-            (user_id,),
-        )
-        user = cursor.fetchone()
-        
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-    
-    return UserProfileResponse(
-        id=user["id"],
-        nickname=user["nickname"],
-        avatar=user["avatar"],
-        group_id=user["group_id"],
-        group_name=user["group_name"],
-        joined_at=user["joined_at"],
-    )
-
-
-@router.patch("/user/{user_id}", response_model=UserProfileResponse, tags=["Users"])
-async def update_user_profile(user_id: int, request: UpdateUserRequest):
-    """Update user profile (nickname and/or avatar)."""
-    with get_cursor() as cursor:
-        # Check user exists
-        cursor.execute("SELECT id FROM users WHERE id = %s", (user_id,))
-        if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        # Build dynamic update
-        updates = []
-        values = []
-        if request.nickname is not None:
-            # Check nickname not taken by another user
-            cursor.execute(
-                "SELECT id FROM users WHERE nickname = %s AND id != %s",
-                (request.nickname, user_id),
-            )
-            if cursor.fetchone():
-                raise HTTPException(status_code=400, detail="Nickname already taken")
-            updates.append("nickname = %s")
-            values.append(request.nickname)
-        if request.avatar is not None:
-            updates.append("avatar = %s")
-            values.append(request.avatar)
-        
-        if not updates:
-            raise HTTPException(status_code=400, detail="No fields to update")
-        
-        values.append(user_id)
-        cursor.execute(
-            f"""
-            UPDATE users SET {", ".join(updates)}
-            WHERE id = %s
-            RETURNING id, nickname, avatar, group_id, joined_at
-            """,
-            tuple(values),
-        )
-        user = cursor.fetchone()
-        
-        # Get group name
-        cursor.execute("SELECT name FROM groups WHERE id = %s", (user["group_id"],))
-        group = cursor.fetchone()
-    
-    return UserProfileResponse(
-        id=user["id"],
-        nickname=user["nickname"],
-        avatar=user["avatar"],
-        group_id=user["group_id"],
-        group_name=group["name"],
-        joined_at=user["joined_at"],
-    )
-
-
 @router.delete("/user/{user_id}", tags=["Users"])
 async def delete_user(user_id: int):
     """Delete a user (leave group)."""
@@ -1202,284 +1056,9 @@ async def delete_user(user_id: int):
     return {"message": "User deleted successfully"}
 
 
-@router.get("/user/{user_id}/votes", response_model=UserVotesResponse, tags=["Users"])
-async def get_user_votes(user_id: int):
-    """Get all votes by a specific user."""
-    with get_cursor() as cursor:
-        cursor.execute("SELECT id, group_id FROM users WHERE id = %s", (user_id,))
-        user = cursor.fetchone()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        group_id = user["group_id"]
-        
-        cursor.execute(
-            """
-            SELECT v.airbnb_id, b.title, v.vote, v.reason, v.created_at
-            FROM votes v
-            JOIN bnbs b ON b.airbnb_id = v.airbnb_id AND b.group_id = v.group_id
-            WHERE v.user_id = %s AND v.group_id = %s
-            ORDER BY v.created_at DESC
-            """,
-            (user_id, group_id),
-        )
-        votes = cursor.fetchall()
-    
-    return UserVotesResponse(
-        user_id=user_id,
-        votes=[
-            UserVoteInfo(
-                airbnb_id=v["airbnb_id"],
-                title=v["title"] or "Untitled",
-                vote=v["vote"],
-                reason=v["reason"],
-                created_at=v["created_at"],
-            )
-            for v in votes
-        ],
-        total_votes=len(votes),
-    )
-
-
-# =============================================================================
-# GROUP MANAGEMENT ENDPOINTS
-# =============================================================================
-
-@router.patch("/group/{group_id}", response_model=GroupInfoResponse, tags=["Groups"])
-async def update_group(group_id: int, request: UpdateGroupRequest):
-    """Update group settings."""
-    with get_cursor() as cursor:
-        cursor.execute("SELECT id FROM groups WHERE id = %s", (group_id,))
-        if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="Group not found")
-        
-        # Build dynamic update
-        updates = []
-        values = []
-        if request.name is not None:
-            updates.append("name = %s")
-            values.append(request.name)
-        if request.date_start is not None:
-            updates.append("date_range_start = %s")
-            values.append(request.date_start)
-        if request.date_end is not None:
-            updates.append("date_range_end = %s")
-            values.append(request.date_end)
-        if request.adults is not None:
-            updates.append("adults = %s")
-            values.append(request.adults)
-        if request.children is not None:
-            updates.append("children = %s")
-            values.append(request.children)
-        if request.infants is not None:
-            updates.append("infants = %s")
-            values.append(request.infants)
-        if request.pets is not None:
-            updates.append("pets = %s")
-            values.append(request.pets)
-        
-        if not updates:
-            raise HTTPException(status_code=400, detail="No fields to update")
-        
-        values.append(group_id)
-        cursor.execute(
-            f"UPDATE groups SET {', '.join(updates)} WHERE id = %s",
-            tuple(values),
-        )
-    
-    # Return updated group info using existing endpoint logic
-    return await get_group_info(group_id)
-
-
-@router.delete("/group/{group_id}", tags=["Groups"])
-async def delete_group(group_id: int):
-    """Delete a group and all associated data."""
-    with get_cursor() as cursor:
-        cursor.execute("SELECT id FROM groups WHERE id = %s", (group_id,))
-        if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="Group not found")
-        
-        # Get all users in group
-        cursor.execute("SELECT id FROM users WHERE group_id = %s", (group_id,))
-        user_ids = [u["id"] for u in cursor.fetchall()]
-        
-        # Delete in order respecting FK constraints
-        # First delete votes for this group
-        cursor.execute("DELETE FROM votes WHERE group_id = %s", (group_id,))
-        
-        if user_ids:
-            cursor.execute("DELETE FROM filter_amenities WHERE user_id = ANY(%s)", (user_ids,))
-            cursor.execute("DELETE FROM user_filters WHERE user_id = ANY(%s)", (user_ids,))
-            cursor.execute("DELETE FROM filter_request WHERE user_id = ANY(%s)", (user_ids,))
-        
-        # Delete bnb-related data for this group
-        cursor.execute("DELETE FROM bnb_images WHERE group_id = %s", (group_id,))
-        cursor.execute("DELETE FROM bnb_amenities WHERE group_id = %s", (group_id,))
-        cursor.execute("DELETE FROM bnbs WHERE group_id = %s", (group_id,))
-        
-        cursor.execute("DELETE FROM users WHERE group_id = %s", (group_id,))
-        cursor.execute("DELETE FROM destinations WHERE group_id = %s", (group_id,))
-        cursor.execute("DELETE FROM groups WHERE id = %s", (group_id,))
-    
-    return {"message": "Group deleted successfully"}
-
-
-@router.post("/group/{group_id}/destinations", response_model=DestinationInfo, tags=["Destinations"])
-async def add_destination(group_id: int, request: AddDestinationRequest):
-    """Add a destination to a group."""
-    with get_cursor() as cursor:
-        cursor.execute("SELECT id FROM groups WHERE id = %s", (group_id,))
-        if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="Group not found")
-        
-        cursor.execute(
-            """
-            INSERT INTO destinations (group_id, location_name)
-            VALUES (%s, %s)
-            RETURNING id, location_name
-            """,
-            (group_id, request.location_name),
-        )
-        dest = cursor.fetchone()
-    
-    return DestinationInfo(id=dest["id"], name=dest["location_name"])
-
-
-@router.delete("/group/{group_id}/destinations/{destination_id}", tags=["Destinations"])
-async def remove_destination(group_id: int, destination_id: int):
-    """Remove a destination from a group."""
-    with get_cursor() as cursor:
-        cursor.execute(
-            "SELECT id FROM destinations WHERE id = %s AND group_id = %s",
-            (destination_id, group_id),
-        )
-        if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="Destination not found")
-        
-        # Delete related filter requests
-        cursor.execute("DELETE FROM filter_request WHERE destination_id = %s", (destination_id,))
-        
-        # Delete bnbs for this destination (need to delete related data first)
-        cursor.execute(
-            "SELECT airbnb_id FROM bnbs WHERE destination_id = %s AND group_id = %s",
-            (destination_id, group_id),
-        )
-        bnb_ids = [b["airbnb_id"] for b in cursor.fetchall()]
-        
-        if bnb_ids:
-            # Use group_id in deletes for composite key tables
-            cursor.execute(
-                "DELETE FROM bnb_images WHERE group_id = %s AND airbnb_id = ANY(%s)",
-                (group_id, bnb_ids),
-            )
-            cursor.execute(
-                "DELETE FROM bnb_amenities WHERE group_id = %s AND airbnb_id = ANY(%s)",
-                (group_id, bnb_ids),
-            )
-            cursor.execute(
-                "DELETE FROM votes WHERE group_id = %s AND airbnb_id = ANY(%s)",
-                (group_id, bnb_ids),
-            )
-            cursor.execute(
-                "DELETE FROM bnbs WHERE destination_id = %s AND group_id = %s",
-                (destination_id, group_id),
-            )
-        
-        cursor.execute("DELETE FROM destinations WHERE id = %s", (destination_id,))
-    
-    return {"message": "Destination removed successfully"}
-
-
-@router.get("/group/{group_id}/stats", response_model=GroupStatsResponse, tags=["Groups"])
-async def get_group_stats(group_id: int):
-    """Get group statistics including vote progress per user."""
-    with get_cursor() as cursor:
-        cursor.execute("SELECT id FROM groups WHERE id = %s", (group_id,))
-        if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="Group not found")
-        
-        # Get total listings
-        cursor.execute("SELECT COUNT(*) as count FROM bnbs WHERE group_id = %s", (group_id,))
-        total_listings = cursor.fetchone()["count"]
-        
-        # Get users and their vote counts (votes table now has group_id directly)
-        cursor.execute(
-            """
-            SELECT u.id as user_id, u.nickname, COUNT(v.airbnb_id) as votes_cast
-            FROM users u
-            LEFT JOIN votes v ON v.user_id = u.id AND v.group_id = %s
-            WHERE u.group_id = %s
-            GROUP BY u.id, u.nickname
-            ORDER BY u.nickname
-            """,
-            (group_id, group_id),
-        )
-        users = cursor.fetchall()
-    
-    user_progress = []
-    total_votes_possible = total_listings * len(users)
-    total_votes_cast = 0
-    
-    for u in users:
-        votes_cast = u["votes_cast"] or 0
-        total_votes_cast += votes_cast
-        completion = (votes_cast / total_listings * 100) if total_listings > 0 else 0
-        user_progress.append(UserVoteProgress(
-            user_id=u["user_id"],
-            nickname=u["nickname"],
-            votes_cast=votes_cast,
-            total_listings=total_listings,
-            completion_percent=round(completion, 1),
-        ))
-    
-    overall_completion = (total_votes_cast / total_votes_possible * 100) if total_votes_possible > 0 else 0
-    
-    return GroupStatsResponse(
-        group_id=group_id,
-        total_listings=total_listings,
-        total_users=len(users),
-        user_progress=user_progress,
-        overall_completion_percent=round(overall_completion, 1),
-    )
-
-
 # =============================================================================
 # VOTING ENDPOINTS
 # =============================================================================
-
-@router.get("/user/{user_id}/next-to-vote", response_model=NextToVoteResponse, tags=["Voting"])
-async def get_user_next_to_vote(
-    user_id: int, 
-    exclude_airbnb_id: str = Query(default=None, description="Single airbnb_id to exclude (deprecated, use exclude_ids)"),
-    exclude_ids: str = Query(default=None, description="Comma-separated list of airbnb_ids to exclude (e.g., current + prefetched cards)")
-):
-    """
-    Returns the next Airbnb listing for the user to vote on.
-    
-    Uses the scorer to find the highest-scored unvoted listing for the user.
-    
-    - exclude_airbnb_id: Optional single airbnb_id to exclude (deprecated)
-    - exclude_ids: Comma-separated airbnb_ids to exclude (e.g., currently displayed + prefetched cards)
-    """
-    with get_cursor() as cursor:
-        # Verify user exists and get group_id
-        cursor.execute("SELECT id, group_id FROM users WHERE id = %s", (user_id,))
-        user = cursor.fetchone()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        group_id = user["group_id"]
-        
-        # Build list of IDs to exclude
-        exclude_list = []
-        if exclude_ids:
-            exclude_list.extend(exclude_ids.split(","))
-        if exclude_airbnb_id and exclude_airbnb_id not in exclude_list:
-            exclude_list.append(exclude_airbnb_id)
-        
-        # Get the next listing using the scorer
-        return _get_next_listing_for_user(cursor, user_id, group_id, exclude_list if exclude_list else None)
-
 
 @router.get("/user/{user_id}/recommendations", response_model=RecommendationsResponse, tags=["Voting"])
 async def get_user_recommendations(
@@ -1601,267 +1180,6 @@ async def get_user_recommendations(
             total_remaining=total_remaining,
             has_more=total_remaining > limit,
         )
-
-
-@router.get("/user/{user_id}/vote-progress", response_model=VoteProgressResponse, tags=["Voting"])
-async def get_user_vote_progress(user_id: int):
-    """Get user's voting progress."""
-    with get_cursor() as cursor:
-        cursor.execute("SELECT id, group_id FROM users WHERE id = %s", (user_id,))
-        user = cursor.fetchone()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-        
-        group_id = user["group_id"]
-        
-        # Get total listings
-        cursor.execute("SELECT COUNT(*) as count FROM bnbs WHERE group_id = %s", (group_id,))
-        total_listings = cursor.fetchone()["count"]
-        
-        # Get votes cast (votes table now has group_id)
-        cursor.execute(
-            """
-            SELECT COUNT(*) as count FROM votes
-            WHERE user_id = %s AND group_id = %s
-            """,
-            (user_id, group_id),
-        )
-        votes_cast = cursor.fetchone()["count"]
-    
-    remaining = total_listings - votes_cast
-    completion = (votes_cast / total_listings * 100) if total_listings > 0 else 0
-    
-    return VoteProgressResponse(
-        user_id=user_id,
-        votes_cast=votes_cast,
-        total_listings=total_listings,
-        remaining=remaining,
-        completion_percent=round(completion, 1),
-    )
-
-
-# =============================================================================
-# LISTING DETAIL ENDPOINTS
-# =============================================================================
-
-@router.get("/listing/{group_id}/{airbnb_id}", response_model=ListingDetailResponse, tags=["Listings"])
-async def get_listing_detail(group_id: int, airbnb_id: str):
-    """Get full listing details."""
-    with get_cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT airbnb_id, group_id, destination_id, title, description,
-                   price_per_night, bnb_rating, bnb_review_count, main_image_url,
-                   min_bedrooms, min_beds, min_bathrooms, property_type
-            FROM bnbs
-            WHERE airbnb_id = %s AND group_id = %s
-            """,
-            (airbnb_id, group_id),
-        )
-        bnb = cursor.fetchone()
-        
-        if not bnb:
-            raise HTTPException(status_code=404, detail="Listing not found")
-        
-        # Get images (with composite key)
-        cursor.execute(
-            "SELECT image_url FROM bnb_images WHERE airbnb_id = %s AND group_id = %s",
-            (airbnb_id, group_id),
-        )
-        extra_images = cursor.fetchall()
-        
-        # Get amenities (with composite key)
-        cursor.execute(
-            "SELECT amenity_id FROM bnb_amenities WHERE airbnb_id = %s AND group_id = %s",
-            (airbnb_id, group_id),
-        )
-        amenities = cursor.fetchall()
-        
-        images = []
-        if bnb["main_image_url"]:
-            images.append(bnb["main_image_url"])
-        images.extend([img["image_url"] for img in extra_images])
-        if not images:
-            images = ["https://placehold.co/400x300?text=No+Image"]
-    
-    return ListingDetailResponse(
-        airbnb_id=bnb["airbnb_id"],
-        title=bnb["title"] or "Untitled",
-        description=bnb["description"],
-        price=bnb["price_per_night"] or 0,
-        rating=float(bnb["bnb_rating"]) if bnb["bnb_rating"] else None,
-        review_count=bnb["bnb_review_count"],
-        images=images,
-        bedrooms=bnb["min_bedrooms"],
-        beds=bnb["min_beds"],
-        bathrooms=bnb["min_bathrooms"],
-        property_type=bnb["property_type"],
-        amenities=[a["amenity_id"] for a in amenities],
-        group_id=bnb["group_id"],
-        destination_id=bnb["destination_id"],
-    )
-
-
-@router.get("/listing/{group_id}/{airbnb_id}/votes", response_model=ListingVotesResponse, tags=["Listings"])
-async def get_listing_votes(group_id: int, airbnb_id: str):
-    """Get all votes for a specific listing."""
-    with get_cursor() as cursor:
-        cursor.execute(
-            "SELECT airbnb_id FROM bnbs WHERE airbnb_id = %s AND group_id = %s",
-            (airbnb_id, group_id),
-        )
-        if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="Listing not found")
-        
-        cursor.execute(
-            """
-            SELECT v.user_id, u.nickname as user_name, v.airbnb_id, v.vote, v.reason
-            FROM votes v
-            JOIN users u ON u.id = v.user_id
-            WHERE v.airbnb_id = %s AND v.group_id = %s
-            ORDER BY v.created_at DESC
-            """,
-            (airbnb_id, group_id),
-        )
-        votes = cursor.fetchall()
-    
-    # Calculate vote summary
-    veto_count = sum(1 for v in votes if v["vote"] == 0)
-    ok_count = sum(1 for v in votes if v["vote"] == 1)
-    love_count = sum(1 for v in votes if v["vote"] == 2)
-    super_love_count = sum(1 for v in votes if v["vote"] == 3)
-    
-    return ListingVotesResponse(
-        airbnb_id=airbnb_id,
-        votes=[
-            GroupVote(
-                user_id=v["user_id"],
-                user_name=v["user_name"],
-                airbnb_id=v["airbnb_id"],
-                vote=v["vote"],
-                reason=v["reason"],
-            )
-            for v in votes
-        ],
-        vote_summary=LeaderboardVoteSummary(
-            veto_count=veto_count,
-            ok_count=ok_count,
-            love_count=love_count,
-            super_love_count=super_love_count,
-        ),
-    )
-
-
-@router.post("/listing/{group_id}/{airbnb_id}/refresh", tags=["Listings"])
-async def refresh_listing(group_id: int, airbnb_id: str):
-    """Trigger a re-scrape of listing details."""
-    with get_cursor() as cursor:
-        cursor.execute(
-            "SELECT airbnb_id FROM bnbs WHERE airbnb_id = %s AND group_id = %s",
-            (airbnb_id, group_id),
-        )
-        if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="Listing not found")
-    
-    job_id = trigger_listing_inquiry(airbnb_id, high_prio=True)
-    
-    return {"job_id": job_id, "message": f"Refresh triggered for listing {airbnb_id}"}
-
-
-# =============================================================================
-# SEARCH & DISCOVERY ENDPOINTS
-# =============================================================================
-
-@router.post("/group/{group_id}/search", response_model=GroupSearchResponse, tags=["Search"])
-async def trigger_group_search(group_id: int, request: GroupSearchRequest):
-    """Trigger a search for all destinations in a group."""
-    with get_cursor() as cursor:
-        cursor.execute("SELECT id FROM groups WHERE id = %s", (group_id,))
-        if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="Group not found")
-        
-        # Get all destinations and a user from the group
-        cursor.execute("SELECT id FROM destinations WHERE group_id = %s", (group_id,))
-        destinations = cursor.fetchall()
-        
-        if not destinations:
-            raise HTTPException(status_code=400, detail="No destinations in group")
-        
-        # Get any user from the group to use for filter reference
-        cursor.execute("SELECT id FROM users WHERE group_id = %s LIMIT 1", (group_id,))
-        user = cursor.fetchone()
-        
-        if not user:
-            raise HTTPException(status_code=400, detail="No users in group")
-    
-    # Trigger search for each destination
-    job_ids = []
-    for dest in destinations:
-        job_id = trigger_search_job(
-            user_id=user["id"],
-            destination_id=dest["id"],
-            page_start=1,
-            page_end=request.page_count,
-            high_prio=True,
-        )
-        job_ids.append(job_id)
-    
-    return GroupSearchResponse(
-        job_ids=job_ids,
-        destinations_count=len(destinations),
-        message=f"Search triggered for {len(destinations)} destination(s)",
-    )
-
-
-@router.get("/group/{group_id}/search/status", response_model=SearchStatusResponse, tags=["Search"])
-async def get_search_status(group_id: int):
-    """Get the search/scraping status for a group."""
-    with get_cursor() as cursor:
-        cursor.execute("SELECT id FROM groups WHERE id = %s", (group_id,))
-        if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="Group not found")
-        
-        # Get all destinations with their scrape progress
-        cursor.execute(
-            """
-            SELECT d.id as destination_id, d.location_name,
-                   COALESCE(fr.pages_fetched, 0) as pages_fetched,
-                   COALESCE(fr.pages_total, 0) as pages_total
-            FROM destinations d
-            LEFT JOIN filter_request fr ON fr.destination_id = d.id
-            WHERE d.group_id = %s
-            """,
-            (group_id,),
-        )
-        destinations = cursor.fetchall()
-    
-    dest_statuses = []
-    total_fetched = 0
-    total_pages = 0
-    
-    for d in destinations:
-        pages_fetched = d["pages_fetched"]
-        pages_total = d["pages_total"]
-        total_fetched += pages_fetched
-        total_pages += pages_total
-        
-        dest_statuses.append(SearchStatusDestination(
-            destination_id=d["destination_id"],
-            location_name=d["location_name"],
-            pages_fetched=pages_fetched,
-            pages_total=pages_total,
-            is_complete=pages_fetched >= pages_total if pages_total > 0 else False,
-        ))
-    
-    overall_progress = (total_fetched / total_pages * 100) if total_pages > 0 else 0
-    
-    return SearchStatusResponse(
-        group_id=group_id,
-        destinations=dest_statuses,
-        overall_progress_percent=round(overall_progress, 1),
-    )
-
-
 
 
 @router.websocket("/ws/leaderboard/{group_id}")

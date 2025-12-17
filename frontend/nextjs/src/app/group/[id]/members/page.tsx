@@ -1,19 +1,22 @@
 "use client";
 
 import { useEffect, useState, useCallback } from 'react';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
 import { useAppStore } from '../../../../store/useAppStore';
-import { getGroupInfo, GroupInfo } from '../../../../lib/api';
-import { Calendar, MapPin, Loader2, Copy, Check, Users } from 'lucide-react';
+import { getGroupInfo, deleteUser, GroupInfo } from '../../../../lib/api';
+import { Calendar, MapPin, Loader2, Copy, Check, Users, LogOut } from 'lucide-react';
 
 export default function MembersPage() {
   const { id } = useParams();
-  const { currentUser, isHydrated } = useAppStore();
+  const router = useRouter();
+  const { currentUser, isHydrated, clearUser } = useAppStore();
   
   const [groupInfo, setGroupInfo] = useState<GroupInfo | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
+  const [isLeaving, setIsLeaving] = useState(false);
 
   const groupId = typeof id === 'string' ? parseInt(id, 10) : null;
 
@@ -57,6 +60,26 @@ export default function MembersPage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
+  };
+
+  const handleLeaveGroup = async () => {
+    if (!currentUser?.id) return;
+    
+    setIsLeaving(true);
+    try {
+      await deleteUser(currentUser.id);
+      clearUser();
+      router.push('/');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to leave group');
+      setIsLeaving(false);
+      setShowLeaveConfirm(false);
+    }
+  };
+
+  // Helper to get vote progress for a user
+  const getVoteProgress = (userId: number) => {
+    return groupInfo?.user_progress.find(p => p.user_id === userId);
   };
 
   if (!isHydrated || isLoading) {
@@ -160,32 +183,54 @@ export default function MembersPage() {
         <div>
           <h2 className="font-bold text-slate-900 text-lg mb-4 px-2">Travelers</h2>
           <div className="flex flex-col gap-3">
-            {groupInfo.users.map((member) => (
-              <div key={member.id} className="bg-white rounded-xl p-4 shadow-sm flex items-center gap-4 border border-slate-100">
-                <div className="w-12 h-12 rounded-full bg-slate-200 overflow-hidden relative flex-shrink-0 ring-2 ring-white shadow-sm">
-                  {member.avatar ? (
-                    <img 
-                      src={member.avatar} 
-                      alt={member.nickname} 
-                      className="absolute inset-0 w-full h-full object-cover" 
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-slate-400 font-bold bg-slate-100">
-                      {member.nickname[0].toUpperCase()}
+            {groupInfo.users.map((member) => {
+              const progress = getVoteProgress(member.id);
+              return (
+                <div key={member.id} className="bg-white rounded-xl p-4 shadow-sm border border-slate-100">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-full bg-slate-200 overflow-hidden relative flex-shrink-0 ring-2 ring-white shadow-sm">
+                      {member.avatar ? (
+                        <img 
+                          src={member.avatar} 
+                          alt={member.nickname} 
+                          className="absolute inset-0 w-full h-full object-cover" 
+                        />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center text-slate-400 font-bold bg-slate-100">
+                          {member.nickname[0].toUpperCase()}
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-bold text-slate-900 truncate text-base flex items-center gap-2">
+                        {member.nickname}
+                        {member.id === currentUser?.id && (
+                          <span className="text-xs font-normal text-rose-500 bg-rose-50 px-2 py-0.5 rounded-full">You</span>
+                        )}
+                      </h3>
+                      {progress && groupInfo.total_listings > 0 && (
+                        <p className="text-xs text-slate-500 mt-0.5">
+                          {progress.votes_cast}/{progress.total_listings} voted
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  
+                  {/* Vote progress bar */}
+                  {progress && groupInfo.total_listings > 0 && (
+                    <div className="mt-3">
+                      <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                        <div 
+                          className="h-full bg-rose-400 rounded-full transition-all duration-300"
+                          style={{ width: `${Math.min(100, (progress.votes_cast / progress.total_listings) * 100)}%` }}
+                        />
+                      </div>
                     </div>
                   )}
                 </div>
-                
-                <div className="flex-1 min-w-0">
-                  <h3 className="font-bold text-slate-900 truncate text-base flex items-center gap-2">
-                    {member.nickname}
-                    {member.id === currentUser?.id && (
-                      <span className="text-xs font-normal text-rose-500 bg-rose-50 px-2 py-0.5 rounded-full">You</span>
-                    )}
-                  </h3>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
         
@@ -216,7 +261,50 @@ export default function MembersPage() {
           </div>
         </div>
 
+        {/* Leave Group Button */}
+        <div className="mt-2 mx-2">
+          <button
+            onClick={() => setShowLeaveConfirm(true)}
+            className="w-full py-3 text-slate-500 hover:text-red-500 text-sm font-medium flex items-center justify-center gap-2 transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+            Leave Group
+          </button>
+        </div>
+
       </div>
+
+      {/* Leave Group Confirmation Modal */}
+      {showLeaveConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full shadow-xl">
+            <h3 className="text-lg font-bold text-slate-900 mb-2">Leave group?</h3>
+            <p className="text-slate-600 text-sm mb-6">
+              Your votes will be deleted and you&apos;ll need to rejoin to participate again.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowLeaveConfirm(false)}
+                disabled={isLeaving}
+                className="flex-1 py-3 px-4 rounded-xl font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleLeaveGroup}
+                disabled={isLeaving}
+                className="flex-1 py-3 px-4 rounded-xl font-medium text-white bg-red-500 hover:bg-red-600 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isLeaving ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  'Leave'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
