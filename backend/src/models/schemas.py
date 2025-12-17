@@ -31,6 +31,14 @@ class DestinationInfo(BaseModel):
     name: str
 
 
+class UserVoteProgress(BaseModel):
+    """Vote progress for a single user"""
+    user_id: int
+    nickname: str
+    votes_cast: int
+    total_listings: int
+
+
 class GroupInfoResponse(BaseModel):
     group_id: int
     group_name: str
@@ -44,6 +52,8 @@ class GroupInfoResponse(BaseModel):
     price_range_min: Optional[int] = None
     price_range_max: Optional[int] = None
     users: List[UserInfo]
+    total_listings: int = 0
+    user_progress: List[UserVoteProgress] = []
 
 
 class JoinGroupRequest(BaseModel):
@@ -176,9 +186,9 @@ class VoteWithNextResponse(BaseModel):
 class LeaderboardVoteSummary(BaseModel):
     """Summary of votes for a listing"""
     veto_count: int = 0
-    ok_count: int = 0
-    love_count: int = 0
-    super_love_count: int = 0
+    dislike_count: int = 0
+    like_count: int = 0
+    super_like_count: int = 0
 
 
 class LeaderboardEntry(BaseModel):
@@ -211,152 +221,7 @@ class LeaderboardResponse(BaseModel):
     total_users: int  # total users in the group
 
 
-# =============================================================================
-# User Management Schemas
-# =============================================================================
 
-class UserProfileResponse(BaseModel):
-    """Full user profile"""
-    id: int
-    nickname: str
-    avatar: Optional[str] = None
-    group_id: int
-    group_name: str
-    joined_at: Optional[datetime] = None
-
-
-class UpdateUserRequest(BaseModel):
-    """Update user profile"""
-    nickname: Optional[str] = None
-    avatar: Optional[str] = None
-
-
-class UserVoteInfo(BaseModel):
-    """Vote info for user's votes endpoint"""
-    airbnb_id: str
-    title: str
-    vote: int
-    reason: Optional[str] = None
-    created_at: Optional[datetime] = None
-
-
-class UserVotesResponse(BaseModel):
-    """All votes by a user"""
-    user_id: int
-    votes: List[UserVoteInfo]
-    total_votes: int
-
-
-# =============================================================================
-# Group Management Schemas
-# =============================================================================
-
-class UpdateGroupRequest(BaseModel):
-    """Update group settings"""
-    name: Optional[str] = None
-    date_start: Optional[date] = None
-    date_end: Optional[date] = None
-    adults: Optional[int] = None
-    children: Optional[int] = None
-    infants: Optional[int] = None
-    pets: Optional[int] = None
-
-
-class AddDestinationRequest(BaseModel):
-    """Add a destination to a group"""
-    location_name: str
-
-
-class UserVoteProgress(BaseModel):
-    """Vote progress for a single user"""
-    user_id: int
-    nickname: str
-    votes_cast: int
-    total_listings: int
-    completion_percent: float
-
-
-class GroupStatsResponse(BaseModel):
-    """Group statistics"""
-    group_id: int
-    total_listings: int
-    total_users: int
-    user_progress: List[UserVoteProgress]
-    overall_completion_percent: float
-
-
-# =============================================================================
-# Voting Progress Schemas
-# =============================================================================
-
-class VoteProgressResponse(BaseModel):
-    """User's voting progress"""
-    user_id: int
-    votes_cast: int
-    total_listings: int
-    remaining: int
-    completion_percent: float
-
-
-# =============================================================================
-# Listing Detail Schemas
-# =============================================================================
-
-class ListingDetailResponse(BaseModel):
-    """Full listing details"""
-    airbnb_id: str
-    title: str
-    description: Optional[str] = None
-    price: int
-    rating: Optional[float] = None
-    review_count: Optional[int] = None
-    images: List[str]
-    bedrooms: Optional[int] = None
-    beds: Optional[int] = None
-    bathrooms: Optional[int] = None
-    property_type: Optional[str] = None
-    amenities: List[int] = []
-    group_id: int
-    destination_id: int
-
-
-class ListingVotesResponse(BaseModel):
-    """All votes for a listing"""
-    airbnb_id: str
-    votes: List[GroupVote]
-    vote_summary: LeaderboardVoteSummary
-
-
-# =============================================================================
-# Search & Discovery Schemas
-# =============================================================================
-
-class GroupSearchRequest(BaseModel):
-    """Trigger search for a group"""
-    page_count: int = 4  # pages per destination
-
-
-class GroupSearchResponse(BaseModel):
-    """Response after triggering group search"""
-    job_ids: List[str]
-    destinations_count: int
-    message: str
-
-
-class SearchStatusDestination(BaseModel):
-    """Search status for a destination"""
-    destination_id: int
-    location_name: str
-    pages_fetched: int
-    pages_total: int
-    is_complete: bool
-
-
-class SearchStatusResponse(BaseModel):
-    """Search status for a group"""
-    group_id: int
-    destinations: List[SearchStatusDestination]
-    overall_progress_percent: float
 
 
 # =============================================================================

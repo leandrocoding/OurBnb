@@ -52,6 +52,13 @@ export interface UserInfo {
   avatar?: string;
 }
 
+export interface UserVoteProgress {
+  user_id: number;
+  nickname: string;
+  votes_cast: number;
+  total_listings: number;
+}
+
 export interface GroupInfo {
   group_id: number;
   group_name: string;
@@ -65,6 +72,8 @@ export interface GroupInfo {
   price_range_min?: number;
   price_range_max?: number;
   users: UserInfo[];
+  total_listings: number;
+  user_progress: UserVoteProgress[];
 }
 
 export interface CreateGroupRequest {
@@ -118,27 +127,6 @@ export interface GroupVote {
   reason?: string;
 }
 
-export interface QueuedListing {
-  airbnb_id: string;
-  title: string;
-  price: number;
-  rating?: number;
-  review_count?: number;
-  images: string[];
-  bedrooms?: number;
-  beds?: number;
-  bathrooms?: number;
-  property_type?: string;
-  amenities: number[];
-  other_votes: GroupVote[];
-}
-
-export interface VotingQueueResponse {
-  user_id: number;
-  queue: QueuedListing[];
-  total_unvoted: number;
-}
-
 export interface VoteRequest {
   user_id: number;
   airbnb_id: string;
@@ -153,39 +141,18 @@ export interface VoteResponse {
   reason?: string;
 }
 
-export interface NextToVoteResponse {
-  airbnb_id?: string;
-  title?: string;
-  price?: number;
-  rating?: number;
-  review_count?: number;
-  location?: string;
-  images: string[];
-  bedrooms?: number;
-  beds?: number;
-  bathrooms?: number;
-  property_type?: string;
-  amenities: number[];
-  other_votes: GroupVote[];
-  booking_link?: string;
-  has_listing: boolean;
-  total_remaining: number;   // Unvoted listings for this user
-  total_listings: number;    // Total listings in the group
-}
-
 export interface VoteWithNextResponse {
   user_id: number;
   airbnb_id: string;
   vote: number;
   reason?: string;
-  next_listing?: NextToVoteResponse;
 }
 
 export interface LeaderboardVoteSummary {
   veto_count: number;
-  ok_count: number;
-  love_count: number;
-  super_love_count: number;
+  dislike_count: number;
+  like_count: number;
+  super_like_count: number;
 }
 
 export interface LeaderboardEntry {
@@ -234,14 +201,6 @@ export interface UserFilter {
   min_bathrooms?: number;
   property_type?: string;
   amenities?: number[];
-}
-
-export interface VoteProgressResponse {
-  user_id: number;
-  votes_cast: number;
-  total_listings: number;
-  remaining: number;
-  completion_percent: number;
 }
 
 // ============ Recommendations Types ============
@@ -333,17 +292,6 @@ export async function getGroupListings(groupId: number): Promise<GroupListingsRe
   return fetchApi<GroupListingsResponse>(`/api/group/${groupId}/listings`);
 }
 
-export async function getVotingQueue(
-  userId: number,
-  limit: number = 10
-): Promise<VotingQueueResponse> {
-  return fetchApi<VotingQueueResponse>(`/api/user/${userId}/queue?limit=${limit}`);
-}
-
-export async function getVoteProgress(userId: number): Promise<VoteProgressResponse> {
-  return fetchApi<VoteProgressResponse>(`/api/user/${userId}/vote-progress`);
-}
-
 // ============ Votes API ============
 
 export async function submitVote(
@@ -361,16 +309,6 @@ export async function submitVote(
       reason,
     }),
   });
-}
-
-// ============ Next To Vote API ============
-
-export async function getNextToVote(
-  userId: number,
-  excludeAirbnbIds?: string[]
-): Promise<NextToVoteResponse> {
-  const params = excludeAirbnbIds?.length ? `?exclude_ids=${excludeAirbnbIds.join(',')}` : '';
-  return fetchApi<NextToVoteResponse>(`/api/user/${userId}/next-to-vote${params}`);
 }
 
 // ============ Recommendations API ============
@@ -437,4 +375,12 @@ export interface DemoAllGroupsResponse {
 
 export async function getAllGroupsForDemo(): Promise<DemoAllGroupsResponse> {
   return fetchApi<DemoAllGroupsResponse>('/api/demo/groups');
+}
+
+// ============ Users API ============
+
+export async function deleteUser(userId: number): Promise<void> {
+  return fetchApi<void>(`/api/user/${userId}`, {
+    method: 'DELETE',
+  });
 }
