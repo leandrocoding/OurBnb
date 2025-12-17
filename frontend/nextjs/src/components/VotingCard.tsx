@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, useMotionValue, useTransform, useAnimate, AnimatePresence } from 'framer-motion';
 import { Listing, VoteValue, VOTE_VETO, VOTE_LOVE, OtherVote } from '../types';
 import { PriceDisplayMode } from '../store/useAppStore';
 import { ThumbsDown, ThumbsUp, Star, ChevronLeft, ChevronRight, MapPin, ExternalLink, Ban, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
 
 // Preload a single image and return a promise
 function preloadImage(src: string): Promise<void> {
@@ -46,6 +47,8 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
   const [isAnimating, setIsAnimating] = useState(false);
   const [showVetoModal, setShowVetoModal] = useState(false);
   const [vetoReason, setVetoReason] = useState('');
+  const scrollLockRef = useRef<{ scrollY: number; prevStyle: Partial<CSSStyleDeclaration> } | null>(null);
+  const [visualViewportRect, setVisualViewportRect] = useState<{ top: number; height: number } | null>(null);
   
   // Preload all images for this listing when it mounts
   useEffect(() => {
@@ -329,6 +332,82 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showVetoModal, vetoReason]);
 
+  // Prevent background scroll while veto modal is open (mobile-friendly, incl. iOS)
+  useEffect(() => {
+    if (isBackground) return;
+    if (!showVetoModal) return;
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+    const body = document.body;
+    const scrollY = window.scrollY;
+
+    // Save previous inline styles so we can restore them precisely
+    scrollLockRef.current = {
+      scrollY,
+      prevStyle: {
+        overflow: body.style.overflow,
+        position: body.style.position,
+        top: body.style.top,
+        left: body.style.left,
+        right: body.style.right,
+        width: body.style.width,
+      },
+    };
+
+    body.style.overflow = 'hidden';
+    body.style.position = 'fixed';
+    body.style.top = `-${scrollY}px`;
+    body.style.left = '0';
+    body.style.right = '0';
+    body.style.width = '100%';
+
+    return () => {
+      const saved = scrollLockRef.current;
+      if (!saved) return;
+
+      body.style.overflow = saved.prevStyle.overflow ?? '';
+      body.style.position = saved.prevStyle.position ?? '';
+      body.style.top = saved.prevStyle.top ?? '';
+      body.style.left = saved.prevStyle.left ?? '';
+      body.style.right = saved.prevStyle.right ?? '';
+      body.style.width = saved.prevStyle.width ?? '';
+
+      window.scrollTo(0, saved.scrollY);
+      scrollLockRef.current = null;
+    };
+  }, [showVetoModal, isBackground]);
+
+  // Keep modal centered in the visible area when the on-screen keyboard is open (mobile)
+  useEffect(() => {
+    if (isBackground) return;
+    if (!showVetoModal) {
+      setVisualViewportRect(null);
+      return;
+    }
+    if (typeof window === 'undefined') return;
+
+    const vv = window.visualViewport;
+    if (!vv) return;
+
+    let raf = 0;
+    const update = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        setVisualViewportRect({ top: vv.offsetTop, height: vv.height });
+      });
+    };
+
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+      cancelAnimationFrame(raf);
+    };
+  }, [showVetoModal, isBackground]);
+
   const priceDisplay = getPriceDisplay();
 
   // Format rating
@@ -557,66 +636,79 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
       </div>
 
       {/* Veto Reason Modal */}
-      <AnimatePresence>
-        {showVetoModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm rounded-3xl"
-            onClick={handleVetoCancel}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-2xl p-6 mx-4 w-full max-w-sm shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2 text-red-500">
-                  <Ban className="w-6 h-6" />
-                  <h3 className="text-lg font-bold">Veto this listing</h3>
+      {typeof document !== 'undefined' &&
+        createPortal(
+          <AnimatePresence>
+            {showVetoModal && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-[1000] bg-black/60 backdrop-blur-sm overscroll-contain touch-none"
+                onClick={handleVetoCancel}
+              >
+                {/* This container tracks the visual viewport (esp. when keyboard is open) so centering stays correct */}
+                <div
+                  className="fixed left-0 right-0 flex items-center justify-center"
+                  style={{
+                    top: visualViewportRect?.top ?? 0,
+                    height: visualViewportRect?.height ?? '100vh',
+                  }}
+                >
+                  <motion.div
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.9, opacity: 0 }}
+                    className="bg-white rounded-2xl p-6 mx-4 w-full max-w-sm shadow-2xl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2 text-red-500">
+                        <Ban className="w-6 h-6" />
+                        <h3 className="text-lg font-bold">Veto this listing</h3>
+                      </div>
+                      <button
+                        onClick={handleVetoCancel}
+                        className="p-1 rounded-full hover:bg-slate-100 transition-colors"
+                      >
+                        <X className="w-5 h-5 text-slate-400" />
+                      </button>
+                    </div>
+
+                    <p className="text-slate-600 text-sm mb-4">
+                      This listing won&apos;t be shown to anyone else in your group. Please provide a reason:
+                    </p>
+
+                    <textarea
+                      value={vetoReason}
+                      onChange={(e) => setVetoReason(e.target.value)}
+                      placeholder="Type a reason..."
+                      className="w-full h-24 px-4 py-3 border border-slate-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-slate-700 placeholder:text-slate-400"
+                      autoFocus
+                    />
+
+                    <div className="flex gap-3 mt-4">
+                      <button
+                        onClick={handleVetoCancel}
+                        className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 font-medium hover:bg-slate-50 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleVetoSubmit}
+                        disabled={!vetoReason.trim()}
+                        className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Confirm Veto
+                      </button>
+                    </div>
+                  </motion.div>
                 </div>
-                <button
-                  onClick={handleVetoCancel}
-                  className="p-1 rounded-full hover:bg-slate-100 transition-colors"
-                >
-                  <X className="w-5 h-5 text-slate-400" />
-                </button>
-              </div>
-              
-              <p className="text-slate-600 text-sm mb-4">
-                This listing won&apos;t be shown to anyone else in your group. Please provide a reason:
-              </p>
-              
-              <textarea
-                value={vetoReason}
-                onChange={(e) => setVetoReason(e.target.value)}
-                placeholder="Type a reason..."
-                className="w-full h-24 px-4 py-3 border border-slate-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-slate-700 placeholder:text-slate-400"
-                autoFocus
-              />
-              
-              <div className="flex gap-3 mt-4">
-                <button
-                  onClick={handleVetoCancel}
-                  className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 font-medium hover:bg-slate-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleVetoSubmit}
-                  disabled={!vetoReason.trim()}
-                  className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Confirm Veto
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body
         )}
-      </AnimatePresence>
     </motion.div>
   );
 }

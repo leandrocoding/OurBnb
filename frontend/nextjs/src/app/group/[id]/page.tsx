@@ -376,9 +376,9 @@ export default function GroupPage() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-slate-50">
+    <div className="min-h-full bg-slate-50">
       {/* Main Content */}
-      <main className="flex-1 flex items-center justify-center p-4 overflow-hidden relative" style={{ paddingBottom: '80px' }}>
+      <main className="min-h-full flex items-center justify-center p-4 overflow-x-hidden relative">
         <div className="relative w-full max-w-md h-[65vh]">
           {/* Background Card - animated via motion values */}
           {nextListingDisplay && (

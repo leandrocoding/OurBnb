@@ -153,7 +153,7 @@ export default function FiltersPage() {
   }
 
   return (
-    <div className="bg-white h-full overflow-y-auto pb-32">
+    <div className="bg-white min-h-full">
       <header className="bg-white px-6 py-4 flex items-center justify-between sticky top-0 z-50 border-b border-slate-100 shadow-sm">
         <h1 className="font-bold text-slate-900 text-xl">My Preferences</h1>
         <button
@@ -404,7 +404,7 @@ export default function FiltersPage() {
         </div>
       </div>
 
-      <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-40">
+      <div className="fixed bottom-[calc(80px+env(safe-area-inset-bottom)+1rem)] left-1/2 -translate-x-1/2 z-40">
         <button
           onClick={handleSave}
           disabled={isSaving}
