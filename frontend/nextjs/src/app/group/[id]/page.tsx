@@ -84,6 +84,7 @@ export default function GroupPage() {
   // Vote counter to force VotingCard re-mount after each vote (resets isAnimating state)
   const [voteCount, setVoteCount] = useState(0);
   const [bgShadowOpacity, setBgShadowOpacity] = useState(0);
+  const [priceTooltipDismissed, setPriceTooltipDismissed] = useState(false);
   
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const mountedRef = useRef(true);
@@ -385,7 +386,7 @@ export default function GroupPage() {
   return (
     <div className="h-full bg-slate-50 flex items-center justify-center">
       {/* Main Content */}
-      <main className="w-full flex items-center justify-center p-4 overflow-x-hidden relative">
+      <main className="w-full flex flex-col items-center justify-center p-4 overflow-x-hidden relative">
         <div className="relative w-full max-w-md h-[65vh] py-4">
           {/* Background Card - animated via motion values */}
           {nextListingDisplay && (
@@ -426,6 +427,8 @@ export default function GroupPage() {
               numberOfAdults={groupInfo?.adults || 1}
               priceMode={priceDisplayMode}
               onPriceModeChange={setPriceDisplayMode}
+              showPriceTooltip={voteCount === 2 && !priceTooltipDismissed}
+              onTooltipDismiss={() => setPriceTooltipDismissed(true)}
             />
           </div>
           
@@ -438,6 +441,34 @@ export default function GroupPage() {
               </div>
             </div>
           )}
+        </div>
+
+        {/* Desktop-only keyboard legend */}
+        <div className="hidden lg:block w-full max-w-md mt-4">
+          <div className="text-xs text-slate-500">
+            <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+              <div className="flex items-center gap-2">
+                <kbd className="px-2 py-1 rounded-md bg-slate-200/70 font-mono font-semibold text-slate-800">←</kbd>
+                <span className="font-semibold text-slate-700">Dislike</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <kbd className="px-2 py-1 rounded-md bg-slate-200/70 font-mono font-semibold text-slate-800">→</kbd>
+                <span className="font-semibold text-slate-700">Like</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <kbd className="px-2 py-1 rounded-md bg-slate-200/70 font-mono font-semibold text-slate-800">↓</kbd>
+                <span className="font-semibold text-slate-700">Veto</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <kbd className="px-2 py-1 rounded-md bg-slate-200/70 font-mono font-semibold text-slate-800">Space</kbd>
+                <span className="font-semibold text-slate-700">Next photo</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <kbd className="px-2 py-1 rounded-md bg-slate-200/70 font-mono font-semibold text-slate-800">Enter</kbd>
+                <span className="font-semibold text-slate-700">Open on Airbnb</span>
+              </div>
+            </div>
+          </div>
         </div>
       </main>
     </div>
