@@ -73,7 +73,9 @@ app = VersionedFastAPI(
     **fastapi_args,
     version_format='{major}',
     prefix_format='/v{major}',
-    enable_latest=True
+    enable_latest=True,
+    docs_url=None,  # Disable root /docs so we can redirect to /v1/docs
+    redoc_url=None,  # Disable root /redoc as well
 )
 
 
@@ -106,16 +108,4 @@ async def root():
     # """Root endpoint with API information."""
     """Redirect /docs to /v1/docs where the API documentation lives."""
     return RedirectResponse(url="/v1/docs")
-    # return {
-    #     "service": "Airbnb API",
-    #     "version": "1.0.0",
-    #     "documentation": "/v1/docs",
-    #     "openapi": "/v1/openapi.json",
-    #     "endpoints": {
-    #         "search": "/v1/search",
-    #         "listing": "/v1/listing/{room_id}",
-    #         "amenities": "/v1/search/amenities",
-    #         "room_types": "/v1/search/room-types",
-    #         "health": "/health",
-    #     }
-    # }
+
