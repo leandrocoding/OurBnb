@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAppStore } from '../../../store/useAppStore';
 import { VotingCard, preloadImages } from '../../../components/VotingCard';
 import { submitVote, getGroupInfo, GroupInfo, GroupVote, RecommendationListing } from '../../../lib/api';
-import { VoteValue, Listing, OtherVote } from '../../../types';
+import { VoteValue, Listing, OtherVote, VOTE_VETO, VOTE_LOVE } from '../../../types';
 import { Loader2, Search, Home } from 'lucide-react';
 import { motion, useMotionValue, useTransform, animate } from 'framer-motion';
 import Link from 'next/link';

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { motion, useMotionValue, useTransform, useAnimate, AnimatePresence } from 'framer-motion';
-import { Listing, VoteValue, VOTE_VETO, VOTE_OK, VOTE_SUPER_LOVE, OtherVote } from '../types';
+import { Listing, VoteValue, VOTE_VETO, VOTE_LOVE, OtherVote } from '../types';
 import { PriceDisplayMode } from '../store/useAppStore';
 import { ThumbsDown, ThumbsUp, Star, ChevronLeft, ChevronRight, MapPin, ExternalLink, Ban, X } from 'lucide-react';
 
@@ -37,9 +37,10 @@ interface VotingCardProps {
   numberOfAdults?: number;
   priceMode?: PriceDisplayMode;
   onPriceModeChange?: (mode: PriceDisplayMode) => void;
+  onKeyboardNavigation?: (action: 'prevImage' | 'nextImage' | 'dislike' | 'veto' | 'like' | 'togglePrice') => void;
 }
 
-export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, otherVotes = [], location, isBackground = false, numberOfNights = 1, numberOfAdults = 1, priceMode = 'total', onPriceModeChange }: VotingCardProps) {
+export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, otherVotes = [], location, isBackground = false, numberOfNights = 1, numberOfAdults = 1, priceMode = 'total', onPriceModeChange, onKeyboardNavigation }: VotingCardProps) {
   const [imageIndex, setImageIndex] = useState(0);
   const [scope, animate] = useAnimate();
   const [isAnimating, setIsAnimating] = useState(false);
@@ -103,11 +104,36 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
     setVetoReason('');
   };
 
+  // Handle dislike (veto without reason)
+  const handleDislike = async () => {
+    if (isAnimating) return;
+    
+    setIsAnimating(true);
+    
+    // Notify parent immediately so background card can start animating
+    onVoteStart?.();
+    
+    const exitX = -1 * window.innerWidth; // Dislike goes left
+    const exitRotation = -20;
+    
+    await animate(scope.current, {
+      x: exitX,
+      rotate: exitRotation,
+      opacity: 0,
+    }, {
+      duration: 0.3,
+      ease: "easeOut",
+    });
+    
+    // Submit veto without reason (dislike)
+    onVote(VOTE_VETO);
+  };
+
   // Animate card off screen and then call onVote
   const handleVote = async (vote: VoteValue) => {
     if (isAnimating) return;
     
-    // For veto, show modal instead
+    // For veto button (with reason), show modal instead
     if (vote === VOTE_VETO) {
       handleVetoClick();
       return;
@@ -118,7 +144,7 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
     // Notify parent immediately so background card can start animating
     onVoteStart?.();
     
-    const direction = vote === VOTE_OK ? -1 : 1; // Dislike left, Like right
+    const direction = 1; // Like goes right
     const exitX = direction * window.innerWidth;
     const exitRotation = direction * 20;
     
@@ -134,17 +160,28 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
     onVote(vote);
   };
 
-  // Derived likes/loves (vote values: 1=ok, 2=love, 3=super_love)
-  const likers = otherVotes.filter(v => v.vote >= VOTE_OK);
+  // Derived likes/loves (vote values: 2=love, 3=super_love)
+  const likers = otherVotes.filter(v => v.vote >= VOTE_LOVE);
 
-  const nextImage = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const nextImage = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
     if (imageIndex < listing.images.length - 1) setImageIndex(prev => prev + 1);
   };
 
-  const prevImage = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const prevImage = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
     if (imageIndex > 0) setImageIndex(prev => prev - 1);
+  };
+
+  // Keyboard-only cycling (wraps around)
+  const cycleNextImage = () => {
+    if (listing.images.length <= 1) return;
+    setImageIndex((prev) => (prev + 1) % listing.images.length);
+  };
+
+  const cyclePrevImage = () => {
+    if (listing.images.length <= 1) return;
+    setImageIndex((prev) => (prev - 1 + listing.images.length) % listing.images.length);
   };
 
   // Format price
@@ -190,6 +227,107 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
       'total';
     onPriceModeChange?.(nextMode);
   };
+
+  // Handle keyboard shortcuts
+  useEffect(() => {
+    if (isBackground || showVetoModal) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't handle shortcuts when typing in inputs/textareas
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        return;
+      }
+
+      // Ignore key repeat to avoid accidental multi-votes
+      if (e.repeat) return;
+
+      switch (e.key) {
+        case 'ArrowLeft':
+          e.preventDefault();
+          handleDislike();
+          onKeyboardNavigation?.('dislike');
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          handleVote(VOTE_LOVE);
+          onKeyboardNavigation?.('like');
+          break;
+        case 'ArrowDown':
+          e.preventDefault();
+          handleVetoClick();
+          onKeyboardNavigation?.('veto');
+          break;
+        case ' ':
+          // Space
+          e.preventDefault(); // prevent page scroll
+          if (e.shiftKey) {
+            cyclePrevImage();
+            onKeyboardNavigation?.('prevImage');
+          } else {
+            cycleNextImage();
+            onKeyboardNavigation?.('nextImage');
+          }
+          break;
+        case 'a':
+        case 'A':
+          e.preventDefault();
+          handleDislike();
+          onKeyboardNavigation?.('dislike');
+          break;
+        case 'd':
+        case 'D':
+          e.preventDefault();
+          handleVote(VOTE_LOVE);
+          onKeyboardNavigation?.('like');
+          break;
+        case 'v':
+        case 'V':
+          e.preventDefault();
+          handleVetoClick();
+          onKeyboardNavigation?.('veto');
+          break;
+        case 'p':
+        case 'P':
+          e.preventDefault();
+          togglePriceMode();
+          onKeyboardNavigation?.('togglePrice');
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isBackground, showVetoModal, listing.images.length, onKeyboardNavigation, priceMode, onPriceModeChange]);
+
+  // Handle keyboard shortcuts in veto modal
+  useEffect(() => {
+    if (!showVetoModal) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      // Avoid interfering with IME composition
+      if ((e as unknown as { isComposing?: boolean }).isComposing) return;
+
+      switch (e.key) {
+        case 'Escape':
+          e.preventDefault();
+          handleVetoCancel();
+          break;
+        case 'Enter':
+          // In textarea: Enter submits, Shift+Enter inserts newline
+          if (e.shiftKey) return;
+          e.preventDefault();
+          if (vetoReason.trim()) {
+            handleVetoSubmit();
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showVetoModal, vetoReason]);
 
   const priceDisplay = getPriceDisplay();
 
@@ -266,8 +404,8 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
       drag="x"
       dragConstraints={{ left: 0, right: 0 }}
       onDragEnd={(e, { offset, velocity }) => {
-        if (offset.x > 100) handleVote(VOTE_SUPER_LOVE); // Swipe right = like
-        else if (offset.x < -100) handleVote(VOTE_OK); // Swipe left = dislike
+        if (offset.x > 100) handleVote(VOTE_LOVE); // Swipe right = like
+        else if (offset.x < -100) handleDislike(); // Swipe left = dislike (veto)
       }}
       className="absolute top-0 left-0 w-full h-full bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col z-10"
     >
@@ -388,9 +526,9 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
         </div>
 
         <div className="mt-auto flex items-center justify-center gap-4 pt-2">
-             {/* Dislike button (left) - backend id 1 */}
+             {/* Dislike button (left) - backend id 0 (veto without reason) */}
              <button 
-                onClick={() => handleVote(VOTE_OK)}
+                onClick={handleDislike}
                 disabled={isAnimating || showVetoModal}
                 className="w-14 h-14 rounded-full bg-white border-2 border-orange-200 shadow-lg flex items-center justify-center text-orange-500 hover:bg-orange-50 hover:border-orange-300 hover:scale-105 transition-all disabled:opacity-50"
              >
@@ -407,9 +545,9 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
                  VETO
              </button>
 
-             {/* Like button (right) - backend id 3 */}
+             {/* Like button (right) - backend id 2 */}
              <button 
-                onClick={() => handleVote(VOTE_SUPER_LOVE)}
+                onClick={() => handleVote(VOTE_LOVE)}
                 disabled={isAnimating || showVetoModal}
                 className="w-14 h-14 rounded-full bg-white border-2 border-emerald-200 shadow-lg flex items-center justify-center text-emerald-500 hover:bg-emerald-50 hover:border-emerald-300 hover:scale-105 transition-all disabled:opacity-50"
              >
