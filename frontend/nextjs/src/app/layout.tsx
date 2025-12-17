@@ -16,7 +16,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className="antialiased h-screen flex flex-col overflow-hidden"
+        className="antialiased min-h-[100dvh] h-[100dvh] flex flex-col overflow-hidden"
       >
         <header className="h-16 bg-white border-b border-slate-100 flex items-center px-6 z-50 flex-shrink-0">
           <Link href="/" className="flex items-center gap-2 text-rose-500 hover:text-rose-600 transition-colors">

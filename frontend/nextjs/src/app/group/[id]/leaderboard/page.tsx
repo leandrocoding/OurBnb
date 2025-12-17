@@ -225,7 +225,7 @@ export default function LeaderboardPage() {
   }
 
   return (
-    <div className="flex flex-col h-full pb-24 overflow-y-auto">
+    <div className="flex flex-col min-h-full">
       <header className="bg-white px-6 py-4 shadow-sm sticky top-0 z-10">
         <div className="flex items-center justify-between">
           <div>

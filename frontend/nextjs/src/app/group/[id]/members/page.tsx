@@ -40,7 +40,9 @@ export default function MembersPage() {
     fetchGroupInfo();
   }, [fetchGroupInfo]);
 
-  const handleCopyLink = async () => {
+  const handleCopyLink = async (e?: React.MouseEvent<HTMLButtonElement>) => {
+    e?.preventDefault();
+    e?.stopPropagation();
     if (!groupId) return;
     
     const joinUrl = `${window.location.origin}/join?group=${groupId}`;
@@ -50,13 +52,30 @@ export default function MembersPage() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
-      // Fallback for browsers that don't support clipboard API
+      // Fallback for browsers that don't support clipboard API (Safari iOS can be finicky).
+      // Use a fixed-position, invisible textarea to avoid scroll jumps / "reload-like" behavior.
+      const scrollY = window.scrollY;
       const textArea = document.createElement('textarea');
       textArea.value = joinUrl;
+      textArea.setAttribute('readonly', '');
+      textArea.style.position = 'fixed';
+      textArea.style.top = '0';
+      textArea.style.left = '0';
+      textArea.style.width = '1px';
+      textArea.style.height = '1px';
+      textArea.style.opacity = '0';
+      textArea.style.pointerEvents = 'none';
+      textArea.style.zIndex = '-1';
       document.body.appendChild(textArea);
+
+      textArea.focus();
       textArea.select();
+      textArea.setSelectionRange(0, joinUrl.length);
       document.execCommand('copy');
       document.body.removeChild(textArea);
+
+      // Restore scroll position in case iOS tried to scroll to the focused textarea.
+      window.scrollTo(0, scrollY);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -109,7 +128,7 @@ export default function MembersPage() {
   const destinationNames = groupInfo.destinations.map(d => d.name).join(', ');
 
   return (
-    <div className="bg-slate-50 h-full pb-24 flex flex-col overflow-y-auto">
+    <div className="bg-slate-50 min-h-full flex flex-col">
       {/* Group Info Section with colored background */}
       <div className="bg-rose-50 px-6 pt-8 pb-10 rounded-b-[2.5rem] shadow-sm z-10 relative overflow-hidden">
         {/* Decorative circles */}
@@ -124,12 +143,28 @@ export default function MembersPage() {
                 <span className="bg-white/60 backdrop-blur px-3 py-1 rounded-full font-mono text-xs font-medium border border-rose-100">
                   ID: {groupInfo.group_id}
                 </span>
+                <span className="bg-white/60 backdrop-blur px-3 py-1 rounded-full text-xs font-semibold border border-rose-100">
+                  {groupInfo.users.length} member{groupInfo.users.length === 1 ? '' : 's'}
+                </span>
               </div>
             </div>
-            <div className="bg-white p-3 rounded-2xl shadow-sm text-center min-w-[80px]">
-              <span className="block text-2xl font-bold text-rose-500 leading-none">{groupInfo.users.length}</span>
-              <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wide">Members</span>
-            </div>
+            <button
+              type="button"
+              onClick={handleCopyLink}
+              className="bg-white/80 backdrop-blur px-4 py-2 rounded-xl font-semibold text-slate-800 border border-rose-100 shadow-sm hover:bg-white transition-colors flex items-center gap-2"
+            >
+              {copied ? (
+                <>
+                  <Check className="w-4 h-4 text-emerald-600" />
+                  <span>Copied!</span>
+                </>
+              ) : (
+                <>
+                  <Copy className="w-4 h-4 text-slate-600" />
+                  <span>Invite</span>
+                </>
+              )}
+            </button>
           </div>
 
           <div className="bg-white/80 backdrop-blur rounded-2xl p-5 shadow-sm border border-rose-100 flex flex-col gap-4">
@@ -231,33 +266,6 @@ export default function MembersPage() {
                 </div>
               );
             })}
-          </div>
-        </div>
-        
-        {/* Invite Link */}
-        <div className="mt-4 bg-slate-900 text-white rounded-2xl p-6 text-center shadow-lg mx-2 relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-10 -mt-10 pointer-events-none"></div>
-          <div className="relative z-10">
-            <p className="text-slate-300 text-sm mb-3 font-medium">Invite friends to join</p>
-            <button 
-              onClick={handleCopyLink}
-              className="bg-white/10 hover:bg-white/20 text-white px-8 py-3 rounded-xl font-medium text-sm active:scale-95 transition-all border border-white/10 flex items-center gap-2 mx-auto"
-            >
-              {copied ? (
-                <>
-                  <Check className="w-4 h-4" />
-                  Link Copied!
-                </>
-              ) : (
-                <>
-                  <Copy className="w-4 h-4" />
-                  Copy Invite Link
-                </>
-              )}
-            </button>
-            <p className="text-xs text-slate-400 mt-3">
-              Share this link with your friends
-            </p>
           </div>
         </div>
 

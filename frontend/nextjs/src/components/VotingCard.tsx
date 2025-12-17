@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { motion, useMotionValue, useTransform, useAnimate, AnimatePresence } from 'framer-motion';
 import { Listing, VoteValue, VOTE_VETO, VOTE_LOVE, OtherVote } from '../types';
 import { PriceDisplayMode } from '../store/useAppStore';
 import { ThumbsDown, ThumbsUp, Star, ChevronLeft, ChevronRight, MapPin, ExternalLink, Ban, X } from 'lucide-react';
+import { createPortal } from 'react-dom';
 
 // Preload a single image and return a promise
 function preloadImage(src: string): Promise<void> {
@@ -38,15 +39,30 @@ interface VotingCardProps {
   priceMode?: PriceDisplayMode;
   onPriceModeChange?: (mode: PriceDisplayMode) => void;
   onKeyboardNavigation?: (action: 'prevImage' | 'nextImage' | 'dislike' | 'veto' | 'like' | 'togglePrice') => void;
+  showPriceTooltip?: boolean;
+  onTooltipDismiss?: () => void;
 }
 
-export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, otherVotes = [], location, isBackground = false, numberOfNights = 1, numberOfAdults = 1, priceMode = 'total', onPriceModeChange, onKeyboardNavigation }: VotingCardProps) {
+export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, otherVotes = [], location, isBackground = false, numberOfNights = 1, numberOfAdults = 1, priceMode = 'total', onPriceModeChange, onKeyboardNavigation, showPriceTooltip = false, onTooltipDismiss }: VotingCardProps) {
   const [imageIndex, setImageIndex] = useState(0);
+
+  useEffect(() => {
+    if (!showPriceTooltip || !onTooltipDismiss) return;
+    const dismiss = () => onTooltipDismiss();
+    window.addEventListener('click', dismiss);
+    window.addEventListener('touchstart', dismiss);
+    return () => {
+      window.removeEventListener('click', dismiss);
+      window.removeEventListener('touchstart', dismiss);
+    };
+  }, [showPriceTooltip, onTooltipDismiss]);
   const [scope, animate] = useAnimate();
   const [isAnimating, setIsAnimating] = useState(false);
   const [showVetoModal, setShowVetoModal] = useState(false);
   const [vetoReason, setVetoReason] = useState('');
-  
+  const scrollLockRef = useRef<{ scrollY: number; prevStyle: Partial<CSSStyleDeclaration> } | null>(null);
+  const [visualViewportRect, setVisualViewportRect] = useState<{ top: number; height: number } | null>(null);
+
   // Preload all images for this listing when it mounts
   useEffect(() => {
     if (listing.images.length > 0) {
@@ -55,7 +71,7 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
   }, [listing.images]);
   const x = useMotionValue(0);
   const rotate = useTransform(x, [-200, 200], [-10, 10]);
-  
+
   // Track drag progress and report to parent
   useEffect(() => {
     if (!onDragProgress) return;
@@ -66,7 +82,7 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
     });
     return () => unsubscribe();
   }, [x, onDragProgress]);
-  
+
   // Visual feedback opacities
   const nopeOpacity = useTransform(x, [-150, -20], [1, 0]);
   const likeOpacity = useTransform(x, [20, 150], [0, 1]);
@@ -82,10 +98,10 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
     if (isAnimating || !vetoReason.trim()) return;
     setShowVetoModal(false);
     setIsAnimating(true);
-    
+
     // Notify parent immediately so background card can start animating
     onVoteStart?.();
-    
+
     await animate(scope.current, {
       scale: 0.8,
       opacity: 0,
@@ -93,7 +109,7 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
       duration: 0.3,
       ease: "easeOut",
     });
-    
+
     onVote(VOTE_VETO, vetoReason.trim());
     setVetoReason('');
   };
@@ -107,15 +123,15 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
   // Handle dislike (veto without reason)
   const handleDislike = async () => {
     if (isAnimating) return;
-    
+
     setIsAnimating(true);
-    
+
     // Notify parent immediately so background card can start animating
     onVoteStart?.();
-    
+
     const exitX = -1 * window.innerWidth; // Dislike goes left
     const exitRotation = -20;
-    
+
     await animate(scope.current, {
       x: exitX,
       rotate: exitRotation,
@@ -124,7 +140,7 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
       duration: 0.3,
       ease: "easeOut",
     });
-    
+
     // Submit veto without reason (dislike)
     onVote(VOTE_VETO);
   };
@@ -132,22 +148,22 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
   // Animate card off screen and then call onVote
   const handleVote = async (vote: VoteValue) => {
     if (isAnimating) return;
-    
+
     // For veto button (with reason), show modal instead
     if (vote === VOTE_VETO) {
       handleVetoClick();
       return;
     }
-    
+
     setIsAnimating(true);
-    
+
     // Notify parent immediately so background card can start animating
     onVoteStart?.();
-    
+
     const direction = 1; // Like goes right
     const exitX = direction * window.innerWidth;
     const exitRotation = direction * 20;
-    
+
     await animate(scope.current, {
       x: exitX,
       rotate: exitRotation,
@@ -156,7 +172,7 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
       duration: 0.3,
       ease: "easeOut",
     });
-    
+
     onVote(vote);
   };
 
@@ -221,9 +237,9 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
 
   // Toggle price display mode
   const togglePriceMode = () => {
-    const nextMode: PriceDisplayMode = 
-      priceMode === 'total' ? 'perNight' : 
-      priceMode === 'perNight' ? 'perPerson' : 
+    const nextMode: PriceDisplayMode =
+      priceMode === 'total' ? 'perNight' :
+      priceMode === 'perNight' ? 'perPerson' :
       'total';
     onPriceModeChange?.(nextMode);
   };
@@ -243,6 +259,12 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
       if (e.repeat) return;
 
       switch (e.key) {
+        case 'Enter': {
+          e.preventDefault();
+          const url = listing.bookingLink || `https://www.airbnb.com/rooms/${listing.id}`;
+          window.open(url, '_blank', 'noopener,noreferrer');
+          break;
+        }
         case 'ArrowLeft':
           e.preventDefault();
           handleDislike();
@@ -329,6 +351,82 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [showVetoModal, vetoReason]);
 
+  // Prevent background scroll while veto modal is open (mobile-friendly, incl. iOS)
+  useEffect(() => {
+    if (isBackground) return;
+    if (!showVetoModal) return;
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+
+    const body = document.body;
+    const scrollY = window.scrollY;
+
+    // Save previous inline styles so we can restore them precisely
+    scrollLockRef.current = {
+      scrollY,
+      prevStyle: {
+        overflow: body.style.overflow,
+        position: body.style.position,
+        top: body.style.top,
+        left: body.style.left,
+        right: body.style.right,
+        width: body.style.width,
+      },
+    };
+
+    body.style.overflow = 'hidden';
+    body.style.position = 'fixed';
+    body.style.top = `-${scrollY}px`;
+    body.style.left = '0';
+    body.style.right = '0';
+    body.style.width = '100%';
+
+    return () => {
+      const saved = scrollLockRef.current;
+      if (!saved) return;
+
+      body.style.overflow = saved.prevStyle.overflow ?? '';
+      body.style.position = saved.prevStyle.position ?? '';
+      body.style.top = saved.prevStyle.top ?? '';
+      body.style.left = saved.prevStyle.left ?? '';
+      body.style.right = saved.prevStyle.right ?? '';
+      body.style.width = saved.prevStyle.width ?? '';
+
+      window.scrollTo(0, saved.scrollY);
+      scrollLockRef.current = null;
+    };
+  }, [showVetoModal, isBackground]);
+
+  // Keep modal centered in the visible area when the on-screen keyboard is open (mobile)
+  useEffect(() => {
+    if (isBackground) return;
+    if (!showVetoModal) {
+      setVisualViewportRect(null);
+      return;
+    }
+    if (typeof window === 'undefined') return;
+
+    const vv = window.visualViewport;
+    if (!vv) return;
+
+    let raf = 0;
+    const update = () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        setVisualViewportRect({ top: vv.offsetTop, height: vv.height });
+      });
+    };
+
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+      cancelAnimationFrame(raf);
+    };
+  }, [showVetoModal, isBackground]);
+
   const priceDisplay = getPriceDisplay();
 
   // Format rating
@@ -339,15 +437,28 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
 
   if (isBackground) {
     return (
-      <div className="absolute top-0 left-0 w-full h-full bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col pointer-events-none z-0">
+      <div className="absolute top-0 left-0 w-full h-full bg-white rounded-3xl overflow-hidden flex flex-col pointer-events-none z-0">
         <div className="relative h-3/5 w-full bg-slate-200">
            {listing.images[0] && (
-             <img 
-                src={listing.images[0]} 
+             <img
+                src={listing.images[0]}
                 alt={listing.title}
                 className="absolute inset-0 w-full h-full object-cover"
              />
            )}
+
+           {/* Image indicator dots */}
+           {listing.images.length > 1 && (
+             <div className="absolute bottom-24 left-0 w-full flex justify-center gap-1.5 z-20 pointer-events-none">
+               {listing.images.map((_, i) => (
+                 <div
+                   key={i}
+                   className={`w-1.5 h-1.5 rounded-full shadow-sm transition-colors ${i === 0 ? 'bg-white' : 'bg-white/40'}`}
+                 />
+               ))}
+             </div>
+           )}
+
            <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
            <div className="absolute bottom-4 left-4 right-4 text-white z-20">
                <h2 className="text-2xl font-bold leading-tight drop-shadow-md mb-1">{listing.title}</h2>
@@ -358,6 +469,18 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
                  </div>
                )}
            </div>
+
+           {/* Open on Airbnb button */}
+           <a
+             href={listing.bookingLink || `https://www.airbnb.com/rooms/${listing.id}`}
+             target="_blank"
+             rel="noopener noreferrer"
+             onClick={(e) => e.stopPropagation()}
+             className="absolute top-4 right-4 z-20 bg-white/90 backdrop-blur p-2 rounded-full shadow-sm hover:bg-white hover:shadow-md transition-all pointer-events-auto"
+             title="Open on Airbnb"
+           >
+             <ExternalLink className="w-5 h-5 text-slate-600" />
+           </a>
         </div>
         <div className="p-5 flex flex-col flex-1">
             <div className="flex justify-between items-end mb-2">
@@ -379,7 +502,7 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
                 {listing.bedrooms && <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">{listing.bedrooms} Bed</span>}
                 {listing.bathrooms && <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">{listing.bathrooms} Bath</span>}
             </div>
-            
+
             <div className="mt-auto flex items-center justify-center gap-4 pt-2">
                  <div className="w-14 h-14 rounded-full bg-white border-2 border-orange-200 shadow-lg flex items-center justify-center text-orange-400">
                      <ThumbsDown className="w-6 h-6" />
@@ -424,7 +547,7 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
       )}
 
       {/* Open on Airbnb button */}
-      <a 
+      <a
         href={listing.bookingLink || `https://www.airbnb.com/rooms/${listing.id}`}
         target="_blank"
         rel="noopener noreferrer"
@@ -434,7 +557,7 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
       >
         <ExternalLink className="w-5 h-5 text-slate-600" />
       </a>
-      
+
       {/* Drag Feedback Overlays */}
       <motion.div style={{ opacity: likeOpacity }} className="absolute top-8 right-8 z-30 pointer-events-none transform rotate-12">
           <div className="border-4 border-emerald-500 text-emerald-500 font-bold text-4xl px-4 py-2 rounded-lg bg-white/20 backdrop-blur-sm uppercase tracking-wider">
@@ -450,35 +573,35 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
       {/* Image Carousel */}
       <div className="relative h-3/5 w-full bg-slate-200 group">
         {listing.images[imageIndex] && (
-            <img 
-                src={listing.images[imageIndex]} 
+            <img
+                src={listing.images[imageIndex]}
                 alt={`${listing.title} image ${imageIndex + 1}`}
                 className="absolute inset-0 w-full h-full object-cover"
             />
         )}
-        
+
         {/* Navigation Overlays */}
         {listing.images.length > 1 && (
             <>
-                <div 
+                <div
                     className="absolute inset-y-0 left-0 w-1/4 z-10 cursor-pointer flex items-center justify-start pl-2 opacity-0 group-hover:opacity-100 transition-opacity"
                     onClick={prevImage}
                 >
                     {imageIndex > 0 && <div className="p-1 bg-black/30 rounded-full text-white"><ChevronLeft className="w-6 h-6" /></div>}
                 </div>
-                <div 
+                <div
                     className="absolute inset-y-0 right-0 w-1/4 z-10 cursor-pointer flex items-center justify-end pr-2 opacity-0 group-hover:opacity-100 transition-opacity"
                     onClick={nextImage}
                 >
                     {imageIndex < listing.images.length - 1 && <div className="p-1 bg-black/30 rounded-full text-white"><ChevronRight className="w-6 h-6" /></div>}
                 </div>
-                
+
                 {/* Dots */}
                 <div className="absolute bottom-24 left-0 w-full flex justify-center gap-1.5 z-20">
                     {listing.images.map((_, i) => (
-                        <div 
-                            key={i} 
-                            className={`w-1.5 h-1.5 rounded-full shadow-sm transition-colors ${i === imageIndex ? 'bg-white' : 'bg-white/40'}`} 
+                        <div
+                            key={i}
+                            className={`w-1.5 h-1.5 rounded-full shadow-sm transition-colors ${i === imageIndex ? 'bg-white' : 'bg-white/40'}`}
                         />
                     ))}
                 </div>
@@ -486,7 +609,7 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
         )}
 
         <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black/80 via-black/40 to-transparent pointer-events-none" />
-        
+
         {/* Title and Location Overlay */}
         <div className="absolute bottom-4 left-4 right-4 text-white z-20 pointer-events-none">
             <h2 className="text-2xl font-bold leading-tight drop-shadow-md mb-1">{listing.title}</h2>
@@ -502,10 +625,27 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
       {/* Details */}
       <div className="p-5 flex flex-col flex-1">
         <div className="flex justify-between items-end mb-2">
-            <div 
-              onClick={togglePriceMode}
-              className="cursor-pointer group"
+            <div
+              onClick={() => {
+                togglePriceMode();
+                onTooltipDismiss?.();
+              }}
+              className="cursor-pointer group relative"
             >
+                <AnimatePresence>
+                    {showPriceTooltip && (
+                        <motion.div
+                            key="price-tooltip"
+                            initial={{ opacity: 0, y: -10, scale: 0.9 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: -10, scale: 0.9 }}
+                            className="absolute top-full left-0 mt-3 w-48 bg-slate-800 text-white text-xs rounded-lg py-2 px-3 shadow-xl z-50"
+                        >
+                            <div className="absolute -top-1 left-6 w-3 h-3 bg-slate-800 transform rotate-45"></div>
+                            Tap price to switch price mode
+                        </motion.div>
+                    )}
+                </AnimatePresence>
                 <span className="text-3xl font-bold text-slate-900">{priceDisplay.price}</span>
                 <span className="text-sm text-slate-500 font-medium ml-1.5">{priceDisplay.label}</span>
             </div>
@@ -527,7 +667,7 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
 
         <div className="mt-auto flex items-center justify-center gap-4 pt-2">
              {/* Dislike button (left) - backend id 0 (veto without reason) */}
-             <button 
+             <button
                 onClick={handleDislike}
                 disabled={isAnimating || showVetoModal}
                 className="w-14 h-14 rounded-full bg-white border-2 border-orange-200 shadow-lg flex items-center justify-center text-orange-500 hover:bg-orange-50 hover:border-orange-300 hover:scale-105 transition-all disabled:opacity-50"
@@ -536,7 +676,7 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
              </button>
 
              {/* Veto button (middle) - backend id 0 */}
-             <button 
+             <button
                 onClick={handleVetoClick}
                 disabled={isAnimating || showVetoModal}
                 className="h-14 px-5 rounded-full bg-red-500 shadow-lg shadow-red-500/25 flex items-center justify-center gap-2 text-white font-bold text-sm uppercase tracking-wider hover:bg-red-600 hover:scale-105 transition-all disabled:opacity-50"
@@ -546,7 +686,7 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
              </button>
 
              {/* Like button (right) - backend id 2 */}
-             <button 
+             <button
                 onClick={() => handleVote(VOTE_LOVE)}
                 disabled={isAnimating || showVetoModal}
                 className="w-14 h-14 rounded-full bg-white border-2 border-emerald-200 shadow-lg flex items-center justify-center text-emerald-500 hover:bg-emerald-50 hover:border-emerald-300 hover:scale-105 transition-all disabled:opacity-50"
@@ -557,66 +697,79 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
       </div>
 
       {/* Veto Reason Modal */}
-      <AnimatePresence>
-        {showVetoModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm rounded-3xl"
-            onClick={handleVetoCancel}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="bg-white rounded-2xl p-6 mx-4 w-full max-w-sm shadow-2xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2 text-red-500">
-                  <Ban className="w-6 h-6" />
-                  <h3 className="text-lg font-bold">Veto this listing</h3>
+      {typeof document !== 'undefined' &&
+        createPortal(
+          <AnimatePresence>
+            {showVetoModal && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 z-[1000] bg-black/60 backdrop-blur-sm overscroll-contain touch-none"
+                onClick={handleVetoCancel}
+              >
+                {/* This container tracks the visual viewport (esp. when keyboard is open) so centering stays correct */}
+                <div
+                  className="fixed left-0 right-0 flex items-center justify-center"
+                  style={{
+                    top: visualViewportRect?.top ?? 0,
+                    height: visualViewportRect?.height ?? '100vh',
+                  }}
+                >
+                  <motion.div
+                    initial={{ scale: 0.9, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    exit={{ scale: 0.9, opacity: 0 }}
+                    className="bg-white rounded-2xl p-6 mx-4 w-full max-w-sm shadow-2xl"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center justify-between mb-4">
+                      <div className="flex items-center gap-2 text-red-500">
+                        <Ban className="w-6 h-6" />
+                        <h3 className="text-lg font-bold">Veto this listing</h3>
+                      </div>
+                      <button
+                        onClick={handleVetoCancel}
+                        className="p-1 rounded-full hover:bg-slate-100 transition-colors"
+                      >
+                        <X className="w-5 h-5 text-slate-400" />
+                      </button>
+                    </div>
+
+                    <p className="text-slate-600 text-sm mb-4">
+                      This listing won&apos;t be shown to anyone else in your group. Please provide a reason:
+                    </p>
+
+                    <textarea
+                      value={vetoReason}
+                      onChange={(e) => setVetoReason(e.target.value)}
+                      placeholder="Type a reason..."
+                      className="w-full h-24 px-4 py-3 border border-slate-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-slate-700 placeholder:text-slate-400"
+                      autoFocus
+                    />
+
+                    <div className="flex gap-3 mt-4">
+                      <button
+                        onClick={handleVetoCancel}
+                        className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 font-medium hover:bg-slate-50 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        onClick={handleVetoSubmit}
+                        disabled={!vetoReason.trim()}
+                        className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Confirm Veto
+                      </button>
+                    </div>
+                  </motion.div>
                 </div>
-                <button
-                  onClick={handleVetoCancel}
-                  className="p-1 rounded-full hover:bg-slate-100 transition-colors"
-                >
-                  <X className="w-5 h-5 text-slate-400" />
-                </button>
-              </div>
-              
-              <p className="text-slate-600 text-sm mb-4">
-                This listing won&apos;t be shown to anyone else in your group. Please provide a reason:
-              </p>
-              
-              <textarea
-                value={vetoReason}
-                onChange={(e) => setVetoReason(e.target.value)}
-                placeholder="Type a reason..."
-                className="w-full h-24 px-4 py-3 border border-slate-200 rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent text-slate-700 placeholder:text-slate-400"
-                autoFocus
-              />
-              
-              <div className="flex gap-3 mt-4">
-                <button
-                  onClick={handleVetoCancel}
-                  className="flex-1 py-3 rounded-xl border border-slate-200 text-slate-600 font-medium hover:bg-slate-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleVetoSubmit}
-                  disabled={!vetoReason.trim()}
-                  className="flex-1 py-3 rounded-xl bg-red-500 text-white font-bold hover:bg-red-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  Confirm Veto
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
+              </motion.div>
+            )}
+          </AnimatePresence>,
+          document.body
         )}
-      </AnimatePresence>
     </motion.div>
   );
 }
