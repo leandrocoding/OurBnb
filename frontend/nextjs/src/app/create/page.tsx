@@ -159,6 +159,11 @@ export default function CreateGroupPage() {
   };
 
   const handleCreate = async () => {
+    if (!groupName.trim()) {
+      setError('Please enter a group name');
+      return;
+    }
+
     if (!userName.trim()) {
       setError('Please enter your name');
       return;

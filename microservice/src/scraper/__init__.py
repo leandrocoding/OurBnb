@@ -8,6 +8,8 @@ wrapping the core scraping logic from the scraper-worker.
 from .core import (
     search_listings,
     get_listing_details,
+    find_price_range,
+    SearchParams,
     AMENITY_MAP,
     ROOM_TYPE_MAP,
 )
@@ -20,6 +22,8 @@ from .proxy import (
 __all__ = [
     "search_listings",
     "get_listing_details",
+    "find_price_range",
+    "SearchParams",
     "AMENITY_MAP",
     "ROOM_TYPE_MAP",
     "get_proxy_manager",

@@ -62,6 +62,8 @@ export interface GroupInfo {
   children: number;
   infants: number;
   pets: number;
+  price_range_min?: number;
+  price_range_max?: number;
   users: UserInfo[];
 }
 

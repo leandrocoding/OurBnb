@@ -3,21 +3,29 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAppStore } from '../../../../store/useAppStore';
-import { getUserFilters, updateUserFilters} from '../../../../lib/api';
-import { Minus, Plus, Check, Loader2, AlertCircle } from 'lucide-react';
+import { getUserFilters, updateUserFilters, getGroupInfo } from '../../../../lib/api';
+import { Minus, Plus, Check, AlertCircle, Loader2 } from 'lucide-react';
 import { Amenity, RoomType } from '../../../../types';
 import Slider from 'rc-slider';
 import 'rc-slider/assets/index.css';
+
+// Default fallback values
+const DEFAULT_PRICE_MIN = 0;
+const DEFAULT_PRICE_MAX = 1000;
 
 export default function FiltersPage() {
   const { id } = useParams();
   const router = useRouter();
   const { currentUser, isHydrated, invalidateRecommendations } = useAppStore();
 
-  const [priceMin, setPriceMin] = useState(0);
-  const [priceMax, setPriceMax] = useState(1000);
-  const [priceMinInput, setPriceMinInput] = useState('0');
-  const [priceMaxInput, setPriceMaxInput] = useState('1000');
+  // Price range bounds from group destinations
+  const [priceRangeMin, setPriceRangeMin] = useState(DEFAULT_PRICE_MIN);
+  const [priceRangeMax, setPriceRangeMax] = useState(DEFAULT_PRICE_MAX);
+
+  const [priceMin, setPriceMin] = useState(DEFAULT_PRICE_MIN);
+  const [priceMax, setPriceMax] = useState(DEFAULT_PRICE_MAX);
+  const [priceMinInput, setPriceMinInput] = useState(String(DEFAULT_PRICE_MIN));
+  const [priceMaxInput, setPriceMaxInput] = useState(String(DEFAULT_PRICE_MAX));
   const [minBedrooms, setMinBedrooms] = useState(0);
   const [minBeds, setMinBeds] = useState(0);
   const [minBathrooms, setMinBathrooms] = useState(0);
@@ -31,20 +39,35 @@ export default function FiltersPage() {
 
   const groupId = typeof id === 'string' ? parseInt(id, 10) : null;
 
-  // Load existing filters
+  // Load price range from group and existing filters
   const loadFilters = useCallback(async () => {
-    if (!currentUser) return;
+    if (!currentUser || !groupId) return;
 
     setIsLoading(true);
     setError(null);
 
     try {
+      // Fetch group info to get price range
+      const groupInfo = await getGroupInfo(groupId);
+      
+      // Use group-level price range (calculated at group creation)
+      const rangeMin = groupInfo.price_range_min ?? DEFAULT_PRICE_MIN;
+      const rangeMax = groupInfo.price_range_max ?? DEFAULT_PRICE_MAX;
+      
+      setPriceRangeMin(rangeMin);
+      setPriceRangeMax(rangeMax);
+
+      // Fetch user's existing filters
       const filters = await getUserFilters(currentUser.id);
 
-      setPriceMin(filters.min_price || 0);
-      setPriceMax(filters.max_price || 1000);
-      setPriceMinInput(String(filters.min_price || 0));
-      setPriceMaxInput(String(filters.max_price || 1000));
+      // Use saved filter values if they exist, otherwise use the range bounds
+      const savedMin = filters.min_price ?? rangeMin;
+      const savedMax = filters.max_price ?? rangeMax;
+      
+      setPriceMin(savedMin);
+      setPriceMax(savedMax);
+      setPriceMinInput(String(savedMin));
+      setPriceMaxInput(String(savedMax));
       setMinBedrooms(filters.min_bedrooms || 0);
       setMinBeds(filters.min_beds || 0);
       setMinBathrooms(filters.min_bathrooms || 0);
@@ -63,7 +86,7 @@ export default function FiltersPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [currentUser]);
+  }, [currentUser, groupId]);
 
   useEffect(() => {
     loadFilters();
@@ -78,10 +101,10 @@ export default function FiltersPage() {
   };
 
   const handleReset = () => {
-    setPriceMin(0);
-    setPriceMax(1000);
-    setPriceMinInput('0');
-    setPriceMaxInput('1000');
+    setPriceMin(priceRangeMin);
+    setPriceMax(priceRangeMax);
+    setPriceMinInput(String(priceRangeMin));
+    setPriceMaxInput(String(priceRangeMax));
     setMinBedrooms(0);
     setMinBeds(0);
     setMinBathrooms(0);
@@ -169,12 +192,12 @@ export default function FiltersPage() {
           <div className="px-2 mb-6">
             <Slider
               range
-              min={0}
-              max={1000}
+              min={priceRangeMin}
+              max={priceRangeMax}
               allowCross={false}
               step={10}
               value={[priceMin, priceMax]}
-              onChange={(value) => {
+              onChange={(value: number | number[]) => {
                 if (Array.isArray(value)) {
                   setPriceMin(value[0]);
                   setPriceMax(value[1]);
@@ -215,7 +238,7 @@ export default function FiltersPage() {
                 }}
                 onBlur={() => {
                   const val = parseInt(priceMinInput);
-                  let finalMin = isNaN(val) || priceMinInput === '' ? 0 : Math.max(0, Math.min(1000, val));
+                  let finalMin = isNaN(val) || priceMinInput === '' ? priceRangeMin : Math.max(priceRangeMin, Math.min(priceRangeMax, val));
                   if (finalMin > priceMax) {
                     setPriceMax(finalMin);
                     setPriceMaxInput(String(finalMin));
@@ -223,7 +246,7 @@ export default function FiltersPage() {
                   setPriceMin(finalMin);
                   setPriceMinInput(String(finalMin));
                 }}
-                className="w-full p-2 border border-slate-200 rounded-lg text-slate-900"
+                className="w-full p-2 border border-slate-200 rounded-lg text-slate-900 disabled:bg-slate-100 disabled:text-slate-400"
               />
             </div>
             <div className="flex-1">
@@ -241,7 +264,7 @@ export default function FiltersPage() {
                 }}
                 onBlur={() => {
                   const val = parseInt(priceMaxInput);
-                  let finalMax = isNaN(val) || priceMaxInput === '' ? 1000 : Math.max(0, Math.min(1000, val));
+                  let finalMax = isNaN(val) || priceMaxInput === '' ? priceRangeMax : Math.max(priceRangeMin, Math.min(priceRangeMax, val));
                   if (finalMax < priceMin) {
                     setPriceMin(finalMax);
                     setPriceMinInput(String(finalMax));
@@ -249,7 +272,7 @@ export default function FiltersPage() {
                   setPriceMax(finalMax);
                   setPriceMaxInput(String(finalMax));
                 }}
-                className="w-full p-2 border border-slate-200 rounded-lg text-slate-900"
+                className="w-full p-2 border border-slate-200 rounded-lg text-slate-900 disabled:bg-slate-100 disabled:text-slate-400"
               />
             </div>
           </div>

@@ -10,11 +10,52 @@ from models.schemas import (
     AmenityInfo,
     RoomTypeInfo,
     ErrorResponse,
+    PriceRangeRequest,
+    PriceRangeResponse,
 )
-from scraper import search_listings, AMENITY_MAP, ROOM_TYPE_MAP, get_proxy_manager
-from scraper.core import SearchParams
+from scraper import search_listings, find_price_range, AMENITY_MAP, ROOM_TYPE_MAP, get_proxy_manager, SearchParams
 
 router = APIRouter(prefix="/search", tags=["Search"])
+
+
+@router.post(
+    "/price-range",
+    response_model=PriceRangeResponse,
+    summary="Get price range for a location",
+    description="""
+    Fetch the available price range for Airbnb listings at a given location and dates.
+    
+    This returns the min/max prices that Airbnb shows in their price filter histogram.
+    Useful for setting up dynamic price sliders in the UI.
+    """,
+)
+@version(1)
+async def get_price_range(request: PriceRangeRequest) -> PriceRangeResponse:
+    """Get the price range for a search location."""
+    
+    if request.checkout <= request.checkin:
+        raise HTTPException(
+            status_code=400,
+            detail="Checkout date must be after checkin date"
+        )
+    
+    params = SearchParams(
+        location=request.location,
+        checkin=str(request.checkin),
+        checkout=str(request.checkout),
+        adults=request.adults,
+        children=request.children,
+        infants=request.infants,
+        pets=request.pets,
+    )
+    
+    min_price, max_price = find_price_range(params)
+    
+    return PriceRangeResponse(
+        success=True,
+        min_price=min_price,
+        max_price=max_price,
+    )
 
 
 @router.post(

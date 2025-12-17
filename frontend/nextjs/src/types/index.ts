@@ -50,6 +50,8 @@ export type Group = {
   children: number;
   infants: number;
   pets: number;
+  priceRangeMin?: number;
+  priceRangeMax?: number;
   members: User[];
 };
 

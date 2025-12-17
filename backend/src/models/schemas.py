@@ -41,6 +41,8 @@ class GroupInfoResponse(BaseModel):
     children: int
     infants: int
     pets: int
+    price_range_min: Optional[int] = None
+    price_range_max: Optional[int] = None
     users: List[UserInfo]
 
 
@@ -68,7 +70,7 @@ class UserFilter(BaseModel):
 class FilterResponse(BaseModel):
     user_id: int
     min_price: Optional[int] = 0
-    max_price: Optional[int] = 1000
+    max_price: Optional[int] = None
     min_bedrooms: Optional[int] = 0
     min_beds: Optional[int] = 0
     min_bathrooms: Optional[int] = 0

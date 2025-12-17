@@ -194,3 +194,23 @@ class ErrorResponse(BaseModel):
     success: bool = False
     error: str = Field(..., description="Error message")
     detail: Optional[str] = Field(None, description="Additional error details")
+
+
+class PriceRangeRequest(BaseModel):
+    """Request model for fetching price range."""
+    
+    location: str = Field(..., description="Location to search (e.g., 'Paris')")
+    checkin: date = Field(..., description="Check-in date (YYYY-MM-DD)")
+    checkout: date = Field(..., description="Check-out date (YYYY-MM-DD)")
+    adults: int = Field(default=1, ge=1, le=16, description="Number of adults")
+    children: int = Field(default=0, ge=0, le=16, description="Number of children")
+    infants: int = Field(default=0, ge=0, le=5, description="Number of infants")
+    pets: int = Field(default=0, ge=0, le=5, description="Number of pets")
+
+
+class PriceRangeResponse(BaseModel):
+    """Response model for price range."""
+    
+    success: bool = Field(..., description="Whether the request was successful")
+    min_price: int = Field(..., description="Minimum price in the range")
+    max_price: int = Field(..., description="Maximum price in the range")

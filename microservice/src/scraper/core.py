@@ -220,6 +220,96 @@ def search_listings(params: SearchParams) -> dict:
     }
 
 
+def find_price_range(params: SearchParams) -> tuple[int, int]:
+    """
+    Find the price range for a given search location/dates.
+    
+    Airbnb returns a price histogram with min/max values. This fetches that
+    data and returns the range.
+    
+    Args:
+        params: SearchParams object containing search criteria
+        
+    Returns:
+        Tuple of (min_price, max_price). Returns (0, 25000) as fallback.
+    """
+    from bs4 import BeautifulSoup
+    import json
+    
+    DEFAULT_MIN, DEFAULT_MAX = 0, 25000
+    
+    # Build URL without room_type (it breaks the price histogram)
+    url_path, url_params = build_airbnb_url(
+        location=params.location,
+        adults=params.adults,
+        children=params.children,
+        infants=params.infants,
+        pets=params.pets,
+        checkin=params.checkin,
+        checkout=params.checkout,
+        price_min=None,
+        price_max=None,
+        amenities=None,
+        room_type=None,
+        min_bedrooms=None,
+        min_beds=None,
+        min_bathrooms=None,
+    )
+    
+    headers = get_random_headers()
+    proxy_manager = get_proxy_manager()
+    proxy = proxy_manager.get_healthy_proxy(strategy="random")
+    
+    response = None
+    try:
+        response = requests.get(url_path, params=url_params, headers=headers, proxies=proxy, timeout=30)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        if proxy:
+            logger.warning(f"Proxy failed for price range: {e}. Retrying direct.")
+            proxy_manager.mark_failed(proxy)
+            try:
+                response = requests.get(url_path, params=url_params, headers=headers, timeout=30)
+                response.raise_for_status()
+            except Exception:
+                return (DEFAULT_MIN, DEFAULT_MAX)
+        else:
+            return (DEFAULT_MIN, DEFAULT_MAX)
+    
+    if not response:
+        return (DEFAULT_MIN, DEFAULT_MAX)
+    
+    try:
+        soup = BeautifulSoup(response.text, 'html.parser')
+        script_tag = soup.find('script', {'id': 'data-deferred-state-0'})
+        if not script_tag:
+            return (DEFAULT_MIN, DEFAULT_MAX)
+        
+        data = json.loads(script_tag.text)
+        niobe_data = data.get('niobeClientData', [])
+        
+        if len(niobe_data) > 0 and len(niobe_data[0]) > 1:
+            presentation = niobe_data[0][1].get('data', {}).get('presentation', {})
+            stays_search = presentation.get('staysSearch', {})
+            results = stays_search.get('results', {})
+            filters = results.get('filters', {})
+            filter_panel = filters.get('filterPanel', {})
+            sections = filter_panel.get('filterPanelSections', {}).get('sections', [])
+            
+            for section in sections:
+                section_data = section.get('sectionData', {})
+                discrete_items = section_data.get('discreteFilterItems', [])
+                for item in discrete_items:
+                    if 'priceHistogram' in item:
+                        min_val = item.get('minValue', DEFAULT_MIN)
+                        max_val = item.get('maxValue', DEFAULT_MAX)
+                        return (min_val, max_val)
+    except Exception as e:
+        logger.warning(f"Error extracting price range: {e}")
+    
+    return (DEFAULT_MIN, DEFAULT_MAX)
+
+
 def get_listing_details(room_id: str) -> dict:
     """
     Get detailed information about a specific Airbnb listing.

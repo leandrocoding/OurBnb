@@ -7,6 +7,8 @@ CREATE TABLE "groups" (
   "pets" integer NOT NULL DEFAULT 0,
   "date_range_start" date NOT NULL,
   "date_range_end" date NOT NULL,
+  "price_range_min" integer DEFAULT null,
+  "price_range_max" integer DEFAULT null,
   "created_at" timestamptz DEFAULT (now()),
   CHECK (date_range_start < date_range_end),
   CHECK (adults >= 0),
