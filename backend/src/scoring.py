@@ -111,8 +111,10 @@ def get_leaderboard_scores(group_id: int, limit: Optional[int] = None) -> List[S
     scored_bnbs = []
     for bnb in bnbs:
         total_score = 0.0
+        filter_matches = 0
         for uf in user_filters:
             user_filter = {
+                "min_price": None,  # leaderboard doesn't use min_price penalty
                 "max_price": uf["max_price"],
                 "min_bedrooms": uf["min_bedrooms"],
                 "min_beds": uf["min_beds"],
@@ -121,6 +123,9 @@ def get_leaderboard_scores(group_id: int, limit: Optional[int] = None) -> List[S
             }
             total_score += _leaderboard_filter_score(bnb, user_filter)
             total_score += _leaderboard_vote_score(vote_lookup.get((uf["user_id"], bnb["airbnb_id"])))
+            # Count how many users' filters this bnb matches
+            if _check_filter_match(bnb, user_filter):
+                filter_matches += 1
 
         bnb_votes = vote_counts.get(bnb["airbnb_id"], {"veto": 0, "dislike": 0, "like": 0, "super_like": 0})
         scored_bnbs.append(ScoredBnb(
@@ -141,6 +146,7 @@ def get_leaderboard_scores(group_id: int, limit: Optional[int] = None) -> List[S
             dislike_count=bnb_votes["dislike"],
             like_count=bnb_votes["like"],
             super_like_count=bnb_votes["super_like"],
+            filter_matches=filter_matches,
             score=round(total_score),
         ))
 
