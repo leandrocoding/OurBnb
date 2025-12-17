@@ -61,6 +61,11 @@ from models.schemas import (
 )
 from db import get_cursor
 from scrape_utils import trigger_search_for_user_destinations, trigger_search_job, trigger_listing_inquiry
+import httpx
+import os
+
+# Microservice URL for price range lookups
+MICROSERVICE_URL = os.getenv("MICROSERVICE_URL", "http://microservice:8081")
 
 router = APIRouter(prefix="/api")
 
@@ -291,6 +296,8 @@ async def notify_leaderboard_update(group_id: int):
 @router.post("/group/create", response_model=CreateGroupResponse, tags=["Groups"])
 async def create_group(request: CreateGroupRequest):
     """Create a new group and return the group ID."""
+    destinations_to_update = []  # List of (dest_id, location_name)
+    
     with get_cursor() as cursor:
         # Insert the group
         cursor.execute(
@@ -312,15 +319,67 @@ async def create_group(request: CreateGroupRequest):
         group_row = cursor.fetchone()
         group_id = group_row["id"]
         
-        # Insert destinations
+        # Insert destinations and collect their info
         for destination in request.destinations:
             cursor.execute(
                 """
                 INSERT INTO destinations (group_id, location_name)
                 VALUES (%s, %s)
+                RETURNING id
                 """,
                 (group_id, destination),
             )
+            dest_row = cursor.fetchone()
+            destinations_to_update.append((dest_row["id"], destination))
+    
+    # Fetch price ranges from microservice and update DB (after commit)
+    overall_min = None
+    overall_max = None
+    
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        for dest_id, location_name in destinations_to_update:
+            try:
+                response = await client.post(
+                    f"{MICROSERVICE_URL}/v1/search/price-range",
+                    json={
+                        "location": location_name,
+                        "checkin": str(request.date_start),
+                        "checkout": str(request.date_end),
+                        "adults": request.adults,
+                        "children": request.children,
+                        "infants": request.infants,
+                        "pets": request.pets,
+                    }
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    min_price = data["min_price"]
+                    max_price = data["max_price"]
+                    
+                    # Track overall min/max across all destinations
+                    if overall_min is None or min_price < overall_min:
+                        overall_min = min_price
+                    if overall_max is None or max_price > overall_max:
+                        overall_max = max_price
+                    
+                    print(f"Price range for {location_name}: {min_price}-{max_price}")
+                else:
+                    print(f"Failed to get price range for {location_name}: {response.status_code}")
+            except Exception as e:
+                print(f"Error fetching price range for {location_name}: {e}")
+    
+    # Update group with overall price range
+    if overall_min is not None and overall_max is not None:
+        with get_cursor() as cursor:
+            cursor.execute(
+                """
+                UPDATE groups 
+                SET price_range_min = %s, price_range_max = %s
+                WHERE id = %s
+                """,
+                (overall_min, overall_max, group_id)
+            )
+        print(f"Group {group_id} overall price range: {overall_min}-{overall_max}")
     
     return CreateGroupResponse(group_id=group_id)
 
@@ -377,7 +436,8 @@ async def get_group_info(group_id: int):
     with get_cursor() as cursor:
         # Get group info
         cursor.execute(
-            """SELECT id, name, date_range_start, date_range_end, adults, children, infants, pets 
+            """SELECT id, name, date_range_start, date_range_end, adults, children, infants, pets,
+                      price_range_min, price_range_max
                FROM groups WHERE id = %s""",
             (group_id,),
         )
@@ -394,7 +454,10 @@ async def get_group_info(group_id: int):
         destinations = cursor.fetchall()
         
         destination_list = [
-            DestinationInfo(id=dest["id"], name=dest["location_name"])
+            DestinationInfo(
+                id=dest["id"], 
+                name=dest["location_name"]
+            )
             for dest in destinations
         ]
         
@@ -420,6 +483,8 @@ async def get_group_info(group_id: int):
         children=group["children"],
         infants=group["infants"],
         pets=group["pets"],
+        price_range_min=group["price_range_min"],
+        price_range_max=group["price_range_max"],
         users=user_list,
     )
 
@@ -505,8 +570,9 @@ async def get_filter(u_id: int):
             )
         
         # Return default filter if none exists
-        # TODO adjust max_price based on what airbnb has as max. Currently using 1000 (per night)
-        return FilterResponse(user_id=u_id, max_price=1000)
+        # TODO adjust max_price based on what airbnb has as max. Currently using 25000 (per night)
+        
+        return FilterResponse(user_id=u_id)
 
 
 @router.patch("/filter/{u_id}", response_model=FilterResponse, tags=["Filters"])

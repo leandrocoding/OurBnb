@@ -267,10 +267,10 @@ def find_price_range_for_search(location, adults, children, infants, pets, check
                 response.raise_for_status()
             except Exception as retry_e:
                 print(f"Retry with direct connection also failed: {retry_e}")
-                return (0, 1000)
+                return (0, 25000)
         else:
             print(f"Request error (no proxy): {e}")
-            return (0, 1000)
+            return (0, 25000)
     
     try:
         soup = BeautifulSoup(response.text, 'html.parser')
@@ -278,13 +278,13 @@ def find_price_range_for_search(location, adults, children, infants, pets, check
         # The price range data is in data-deferred-state-0, NOT data-injector-instances
         script_tag = soup.find('script', {'id': 'data-deferred-state-0'})
         if not script_tag:
-            return (0, 1000)
+            return (0, 25000)
 
         try:
             data = json.loads(script_tag.text)
         except json.JSONDecodeError:
             print("Failed to decode JSON data for price range.")
-            return (0, 1000)
+            return (0, 25000)
 
         # Navigate to the price filter: niobeClientData[0][1].data.presentation.staysSearch.results.filters.filterPanel.filterPanelSections.sections[0].sectionData.discreteFilterItems[0]
         try:
@@ -304,15 +304,15 @@ def find_price_range_for_search(location, adults, children, infants, pets, check
                     for item in discrete_items:
                         if 'priceHistogram' in item:
                             min_val = item.get('minValue', 0)
-                            max_val = item.get('maxValue', 1000)
+                            max_val = item.get('maxValue', 25000)
                             return (min_val, max_val)
         except (KeyError, IndexError, TypeError) as e:
             print(f"Error extracting price range: {e}")
-            return (0, 1000)
+            return (0, 25000)
     except Exception as e:
         print(f"Request error: {e}")
-        return (0, 1000)
-    return (0, 1000)
+        return (0, 25000)
+    return (0, 25000)
 # TODO add support for additional search params
 def search_airbnb(location, adults, children, infants, pets, checkin, checkout, import_function : Callable[[str],int], min_price=None, max_price=None, amenities=None, room_type=None, min_bedrooms=None, min_beds=None, min_bathrooms=None, max_pages=2):
     url_path, params = build_airbnb_url(location, adults, children, infants, pets, checkin, checkout, price_min=min_price, price_max=max_price, amenities=amenities, room_type=room_type, min_bedrooms=min_bedrooms, min_beds=min_beds, min_bathrooms=min_bathrooms)
