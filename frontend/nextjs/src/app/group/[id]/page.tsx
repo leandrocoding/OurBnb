@@ -7,7 +7,7 @@ import { VotingCard, preloadImages } from '../../../components/VotingCard';
 import { submitVote, getGroupInfo, GroupInfo, GroupVote, RecommendationListing } from '../../../lib/api';
 import { VoteValue, Listing, OtherVote, VOTE_VETO, VOTE_LOVE } from '../../../types';
 import { Loader2, Search, Home } from 'lucide-react';
-import { motion, useMotionValue, useTransform, animate } from 'framer-motion';
+import { motion, useMotionValue, useTransform, animate, useMotionValueEvent } from 'framer-motion';
 import Link from 'next/link';
 
 // Convert RecommendationListing to component Listing format
@@ -83,6 +83,7 @@ export default function GroupPage() {
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
   // Vote counter to force VotingCard re-mount after each vote (resets isAnimating state)
   const [voteCount, setVoteCount] = useState(0);
+  const [bgShadowOpacity, setBgShadowOpacity] = useState(0);
   
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const mountedRef = useRef(true);
@@ -92,6 +93,12 @@ export default function GroupPage() {
   const bgProgress = useMotionValue(0);
   const bgScale = useTransform(bgProgress, [0, 1], [0.95, 1]);
   const bgY = useTransform(bgProgress, [0, 1], [16, 0]);
+  const bgShadowOpacityTransform = useTransform(bgProgress, [0, 1], [0, 1]);
+  
+  // Subscribe to shadow opacity changes
+  useMotionValueEvent(bgShadowOpacityTransform, 'change', (latest) => {
+    setBgShadowOpacity(latest);
+  });
 
   const groupId = typeof id === 'string' ? parseInt(id, 10) : null;
 
@@ -303,7 +310,7 @@ export default function GroupPage() {
   // Waiting for listings state
   if (isWaitingForListings) {
     return (
-      <div className="min-h-full flex flex-col items-center justify-center bg-gradient-to-b from-rose-50 to-white p-6 text-center">
+      <div className="h-full flex flex-col items-center justify-center bg-gradient-to-b from-rose-50 to-white p-6 text-center">
         <div className="relative mb-8">
           {/* Animated search icon */}
           <div className="w-24 h-24 rounded-full bg-rose-100 flex items-center justify-center animate-pulse">
@@ -361,7 +368,7 @@ export default function GroupPage() {
   // No listings / all caught up
   if (!currentListingDisplay) {
     return (
-      <div className="min-h-full flex flex-col items-center justify-center bg-slate-50 p-6 text-center">
+      <div className="h-full flex flex-col items-center justify-center bg-slate-50 p-6 text-center">
         <div className="text-6xl mb-4">🎉</div>
         <h2 className="text-2xl font-bold text-slate-900 mb-2">All caught up!</h2>
         <p className="text-slate-600 mb-6">You&apos;ve voted on all available listings.</p>
@@ -376,43 +383,51 @@ export default function GroupPage() {
   }
 
   return (
-    <div className="min-h-full bg-slate-50">
+    <div className="h-full bg-slate-50 flex items-center justify-center">
       {/* Main Content */}
-      <main className="min-h-full flex items-center justify-center p-4 overflow-x-hidden relative">
-        <div className="relative w-full max-w-md h-[65vh]">
+      <main className="w-full flex items-center justify-center p-4 overflow-x-hidden relative">
+        <div className="relative w-full max-w-md h-[65vh] py-4">
           {/* Background Card - animated via motion values */}
           {nextListingDisplay && (
             <motion.div
               key={`bg-${nextListingDisplay.id}`}
-              className="absolute inset-0"
-              style={{ scale: bgScale, y: bgY }}
+              className="absolute inset-x-0 top-4 bottom-4 rounded-3xl"
+              style={{ 
+                scale: bgScale, 
+                y: bgY,
+                boxShadow: `0 20px 25px -5px rgb(0 0 0 / ${0.1 * bgShadowOpacity}), 0 8px 10px -6px rgb(0 0 0 / ${0.1 * bgShadowOpacity})`,
+              }}
             >
-              <VotingCard 
-                listing={nextListingDisplay}
-                onVote={() => {}} // No-op for background card
-                location={nextListingDisplay.location}
-                isBackground={true}
-                numberOfNights={groupInfo ? calculateNights(groupInfo.date_start, groupInfo.date_end) : 1}
-                numberOfAdults={groupInfo?.adults || 1}
-                priceMode={priceDisplayMode}
-              />
+              <div className="h-full w-full">
+                <VotingCard 
+                  listing={nextListingDisplay}
+                  onVote={() => {}} // No-op for background card
+                  location={nextListingDisplay.location}
+                  isBackground={true}
+                  numberOfNights={groupInfo ? calculateNights(groupInfo.date_start, groupInfo.date_end) : 1}
+                  numberOfAdults={groupInfo?.adults || 1}
+                  priceMode={priceDisplayMode}
+                />
+              </div>
             </motion.div>
           )}
           
           {/* Active Card - include voteCount in key to force re-mount after each vote */}
-          <VotingCard 
-            key={`${currentListingDisplay.id}-${voteCount}`}
-            listing={currentListingDisplay}
-            onVote={handleVote}
-            onDragProgress={handleDragProgress}
-            onVoteStart={handleVoteStart}
-            otherVotes={currentRec?.other_votes ? toOtherVotes(currentRec.other_votes) : []}
-            location={currentListingDisplay.location}
-            numberOfNights={groupInfo ? calculateNights(groupInfo.date_start, groupInfo.date_end) : 1}
-            numberOfAdults={groupInfo?.adults || 1}
-            priceMode={priceDisplayMode}
-            onPriceModeChange={setPriceDisplayMode}
-          />
+          <div className="absolute inset-x-0 top-4 bottom-4">
+            <VotingCard 
+              key={`${currentListingDisplay.id}-${voteCount}`}
+              listing={currentListingDisplay}
+              onVote={handleVote}
+              onDragProgress={handleDragProgress}
+              onVoteStart={handleVoteStart}
+              otherVotes={currentRec?.other_votes ? toOtherVotes(currentRec.other_votes) : []}
+              location={currentListingDisplay.location}
+              numberOfNights={groupInfo ? calculateNights(groupInfo.date_start, groupInfo.date_end) : 1}
+              numberOfAdults={groupInfo?.adults || 1}
+              priceMode={priceDisplayMode}
+              onPriceModeChange={setPriceDisplayMode}
+            />
+          </div>
           
           {/* Loading indicator when fetching more */}
           {isLoadingRecommendations && (

@@ -36,6 +36,12 @@ export default function FiltersPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [hasSavedFilters, setHasSavedFilters] = useState(false);
+  const [showOnboardingHint, setShowOnboardingHint] = useState(true);
+
+  const FILTERS_HINT_DISMISSED_KEY = 'ourbnb_filters_onboarding_v1_dismissed';
+  const TUTORIAL_PENDING_KEY = 'ourbnb_tutorial_v1_pending_group';
+  const TUTORIAL_SEEN_GROUPS_KEY = 'ourbnb_tutorial_v1_seen_groups'; // JSON array of group IDs (strings)
 
   const groupId = typeof id === 'string' ? parseInt(id, 10) : null;
 
@@ -59,6 +65,14 @@ export default function FiltersPage() {
 
       // Fetch user's existing filters
       const filters = await getUserFilters(currentUser.id);
+      // If the backend has an updated_at, the user has saved filters at least once.
+      setHasSavedFilters(Boolean(filters.updated_at));
+      try {
+        const dismissed = localStorage.getItem(FILTERS_HINT_DISMISSED_KEY) === '1';
+        setShowOnboardingHint(!dismissed);
+      } catch {
+        // ignore
+      }
 
       // Use saved filter values if they exist, otherwise use the range bounds
       const savedMin = filters.min_price ?? rangeMin;
@@ -134,6 +148,21 @@ export default function FiltersPage() {
       invalidateRecommendations();
       
       setSaveSuccess(true);
+      setHasSavedFilters(true);
+
+      // Show the tutorial AFTER filters are saved (once user lands back in the group).
+      try {
+        if (groupId) {
+          const raw = localStorage.getItem(TUTORIAL_SEEN_GROUPS_KEY);
+          const seen = raw ? (Array.isArray(JSON.parse(raw)) ? new Set((JSON.parse(raw) as unknown[]).map(String)) : new Set<string>()) : new Set<string>();
+          if (!seen.has(String(groupId))) {
+            localStorage.setItem(TUTORIAL_PENDING_KEY, String(groupId));
+          }
+        }
+      } catch {
+        // ignore
+      }
+
       setTimeout(() => {
         router.push(`/group/${groupId}`);
       }, 500);
@@ -165,12 +194,29 @@ export default function FiltersPage() {
       </header>
 
       {/* Onboarding message */}
-      <div className="mx-6 mt-4 p-4 bg-blue-50 border border-blue-200 rounded-xl">
-        <p className="text-blue-800 text-sm">
-          <strong>Set your preferences</strong> to help us find the best Airbnbs for your group.
-          After you save, we&apos;ll start searching for listings that match everyone&apos;s criteria.
-        </p>
-      </div>
+      {!hasSavedFilters && showOnboardingHint && (
+        <div className="mx-6 mt-4 p-4 bg-blue-50 border border-blue-200 rounded-xl flex items-start justify-between gap-3">
+          <p className="text-blue-800 text-sm">
+            <strong>Set your preferences</strong> to help us find the best Airbnbs for your group.
+            After you save, we&apos;ll start searching for listings that match everyone&apos;s criteria.
+          </p>
+          <button
+            type="button"
+            className="text-blue-800/70 hover:text-blue-900 font-semibold text-sm"
+            onClick={() => {
+              setShowOnboardingHint(false);
+              try {
+                localStorage.setItem(FILTERS_HINT_DISMISSED_KEY, '1');
+              } catch {
+                // ignore
+              }
+            }}
+            aria-label="Dismiss onboarding tip"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="mx-6 mt-4 p-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm flex items-center gap-2">

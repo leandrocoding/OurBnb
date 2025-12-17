@@ -418,7 +418,7 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
 
   if (isBackground) {
     return (
-      <div className="absolute top-0 left-0 w-full h-full bg-white rounded-3xl shadow-xl overflow-hidden flex flex-col pointer-events-none z-0">
+      <div className="absolute top-0 left-0 w-full h-full bg-white rounded-3xl overflow-hidden flex flex-col pointer-events-none z-0">
         <div className="relative h-3/5 w-full bg-slate-200">
            {listing.images[0] && (
              <img 
@@ -427,6 +427,19 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
                 className="absolute inset-0 w-full h-full object-cover"
              />
            )}
+           
+           {/* Image indicator dots */}
+           {listing.images.length > 1 && (
+             <div className="absolute bottom-24 left-0 w-full flex justify-center gap-1.5 z-20 pointer-events-none">
+               {listing.images.map((_, i) => (
+                 <div 
+                   key={i} 
+                   className={`w-1.5 h-1.5 rounded-full shadow-sm transition-colors ${i === 0 ? 'bg-white' : 'bg-white/40'}`} 
+                 />
+               ))}
+             </div>
+           )}
+           
            <div className="absolute bottom-0 left-0 w-full h-32 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
            <div className="absolute bottom-4 left-4 right-4 text-white z-20">
                <h2 className="text-2xl font-bold leading-tight drop-shadow-md mb-1">{listing.title}</h2>
@@ -437,6 +450,18 @@ export function VotingCard({ listing, onVote, onDragProgress, onVoteStart, other
                  </div>
                )}
            </div>
+           
+           {/* Open on Airbnb button */}
+           <a 
+             href={listing.bookingLink || `https://www.airbnb.com/rooms/${listing.id}`}
+             target="_blank"
+             rel="noopener noreferrer"
+             onClick={(e) => e.stopPropagation()}
+             className="absolute top-4 right-4 z-20 bg-white/90 backdrop-blur p-2 rounded-full shadow-sm hover:bg-white hover:shadow-md transition-all pointer-events-auto"
+             title="Open on Airbnb"
+           >
+             <ExternalLink className="w-5 h-5 text-slate-600" />
+           </a>
         </div>
         <div className="p-5 flex flex-col flex-1">
             <div className="flex justify-between items-end mb-2">
