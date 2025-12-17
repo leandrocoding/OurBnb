@@ -134,9 +134,9 @@ async def get_leaderboard_data_for_ws(group_id: int) -> dict:
                 "filter_matches": bnb.filter_matches,
                 "votes": {
                     "veto_count": bnb.veto_count,
-                    "ok_count": bnb.ok_count,
-                    "love_count": bnb.love_count,
-                    "super_love_count": bnb.super_love_count,
+                    "dislike_count": bnb.dislike_count,
+                    "like_count": bnb.like_count,
+                    "super_like_count": bnb.super_like_count,
                 },
                 "booking_link": booking_link,
             })
@@ -246,9 +246,9 @@ async def get_group_leaderboard(group_id: int):
                 filter_matches=bnb.filter_matches,
                 votes=LeaderboardVoteSummary(
                     veto_count=bnb.veto_count,
-                    ok_count=bnb.ok_count,
-                    love_count=bnb.love_count,
-                    super_love_count=bnb.super_love_count,
+                    dislike_count=bnb.dislike_count,
+                    like_count=bnb.like_count,
+                    super_like_count=bnb.super_like_count,
                 ),
                 booking_link=booking_link,
             ))

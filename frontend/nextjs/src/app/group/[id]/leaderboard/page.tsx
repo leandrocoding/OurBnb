@@ -18,9 +18,9 @@ function calculateNights(dateStart: string, dateEnd: string): number {
 
 // Format price based on display mode
 function formatPriceForMode(
-  totalPrice: number, 
-  mode: PriceDisplayMode, 
-  numberOfNights: number, 
+  totalPrice: number,
+  mode: PriceDisplayMode,
+  numberOfNights: number,
   numberOfAdults: number
 ): { price: string; label: string } {
   const formatter = new Intl.NumberFormat('en-US', {
@@ -46,7 +46,7 @@ function formatPriceForMode(
 export default function LeaderboardPage() {
   const { id } = useParams();
   const { currentUser, isHydrated, priceDisplayMode } = useAppStore();
-  
+
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [totalListings, setTotalListings] = useState(0);
   const [totalUsers, setTotalUsers] = useState(0);
@@ -54,13 +54,13 @@ export default function LeaderboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [groupInfo, setGroupInfo] = useState<GroupInfo | null>(null);
-  
+
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const mountedRef = useRef(true);
 
   const groupId = typeof id === 'string' ? parseInt(id, 10) : null;
-  
+
   // Calculate price display values
   const numberOfNights = groupInfo ? calculateNights(groupInfo.date_start, groupInfo.date_end) : 1;
   const numberOfAdults = groupInfo?.adults || 1;
@@ -124,10 +124,10 @@ export default function LeaderboardPage() {
 
       ws.onmessage = (event) => {
         if (!mountedRef.current) return;
-        
+
         try {
           const data = JSON.parse(event.data);
-          
+
           if (data.type === 'ping') {
             // Respond to ping to keep connection alive
             return;
@@ -157,7 +157,7 @@ export default function LeaderboardPage() {
       ws.onclose = () => {
         if (mountedRef.current) {
           setIsConnected(false);
-          
+
           // Only attempt to reconnect if still mounted and not already reconnecting
           if (!reconnectTimeoutRef.current) {
             reconnectTimeoutRef.current = setTimeout(() => {
@@ -182,20 +182,20 @@ export default function LeaderboardPage() {
   // Initial load and WebSocket connection
   useEffect(() => {
     mountedRef.current = true;
-    
+
     // Fetch group info for price calculations
     fetchGroupInfo();
-    
+
     // First fetch via REST for immediate data
     fetchLeaderboard();
-    
+
     // Then connect WebSocket for real-time updates
     connectWebSocket();
 
     // Cleanup on unmount
     return () => {
       mountedRef.current = false;
-      
+
       if (wsRef.current) {
         wsRef.current.close();
         wsRef.current = null;
@@ -234,11 +234,11 @@ export default function LeaderboardPage() {
           </div>
           <div className="flex items-center gap-3">
             {/* Connection status */}
-            <div 
-              className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-slate-300'}`} 
-              title={isConnected ? 'Live updates active' : 'Connecting...'} 
+            <div
+              className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-slate-300'}`}
+              title={isConnected ? 'Live updates active' : 'Connecting...'}
             />
-            
+
             {/* Refresh button */}
             <button
               onClick={handleRefresh}
@@ -249,7 +249,7 @@ export default function LeaderboardPage() {
             </button>
           </div>
         </div>
-        
+
         {/* Stats bar */}
         <div className="flex gap-4 mt-3 text-sm">
           <div className="flex items-center gap-1.5 text-slate-600">
@@ -275,7 +275,7 @@ export default function LeaderboardPage() {
           <div className="text-5xl mb-4">📭</div>
           <h2 className="text-xl font-bold text-slate-900 mb-2">No rankings yet</h2>
           <p className="text-slate-600 mb-6">Start voting to see the leaderboard!</p>
-          <Link 
+          <Link
             href={`/group/${id}`}
             className="bg-rose-500 text-white px-6 py-3 rounded-full font-bold shadow-lg"
           >
@@ -285,8 +285,8 @@ export default function LeaderboardPage() {
       ) : (
         <div className="p-6 flex flex-col gap-4">
           {leaderboard.map((entry) => (
-            <a 
-              key={entry.airbnb_id} 
+            <a
+              key={entry.airbnb_id}
               href={entry.booking_link || `https://www.airbnb.com/rooms/${entry.airbnb_id}`}
               target="_blank"
               rel="noopener noreferrer"
@@ -294,22 +294,21 @@ export default function LeaderboardPage() {
             >
               <div className="relative w-24 h-24 flex-shrink-0 rounded-xl overflow-hidden bg-slate-100">
                 {entry.images[0] && (
-                  <img 
-                    src={entry.images[0]} 
-                    alt={entry.title} 
-                    className="absolute inset-0 w-full h-full object-cover" 
+                  <img
+                    src={entry.images[0]}
+                    alt={entry.title}
+                    className="absolute inset-0 w-full h-full object-cover"
                   />
                 )}
-                <div className={`absolute top-1 left-1 text-xs font-bold px-1.5 py-0.5 rounded text-white ${
-                  entry.rank === 1 ? 'bg-yellow-500' : 
-                  entry.rank === 2 ? 'bg-slate-400' : 
-                  entry.rank === 3 ? 'bg-amber-600' : 'bg-slate-500'
-                }`}>
+                <div className={`absolute top-1 left-1 text-xs font-bold px-1.5 py-0.5 rounded text-white ${entry.rank === 1 ? 'bg-yellow-500' :
+                    entry.rank === 2 ? 'bg-slate-400' :
+                      entry.rank === 3 ? 'bg-amber-600' : 'bg-slate-500'
+                  }`}>
                   #{entry.rank}
                 </div>
               </div>
-              
-                <div className="flex-1 min-w-0">
+
+              <div className="flex-1 min-w-0">
                 <div className="flex justify-between items-start">
                   <h3 className="font-bold text-slate-900 truncate pr-2">{entry.title}</h3>
                   <div className="flex items-center gap-2 flex-shrink-0">
@@ -317,7 +316,7 @@ export default function LeaderboardPage() {
                     <ExternalLink className="w-4 h-4 text-slate-400" />
                   </div>
                 </div>
-                
+
                 <div className="flex items-center gap-2 text-slate-600 text-sm mb-2">
                   {(() => {
                     const priceInfo = formatPriceForMode(entry.price, priceDisplayMode, numberOfNights, numberOfAdults);
@@ -333,16 +332,21 @@ export default function LeaderboardPage() {
                     </>
                   )}
                 </div>
-                
+
                 <div className="flex gap-2 flex-wrap">
-                  {entry.votes.super_love_count > 0 && (
+                  {entry.votes.super_like_count > 0 && (
                     <div className="flex items-center gap-1 text-xs font-medium text-emerald-600 bg-emerald-50 px-2 py-1 rounded">
-                      <ThumbsUp className="w-3 h-3" /> {entry.votes.super_love_count}
+                      <ThumbsUp className="w-3 h-3" /> {entry.votes.super_like_count}
                     </div>
                   )}
-                  {entry.votes.ok_count > 0 && (
+                  {entry.votes.like_count > 0 && (
+                    <div className="flex items-center gap-1 text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                      <ThumbsUp className="w-3 h-3" /> {entry.votes.like_count}
+                    </div>
+                  )}
+                  {entry.votes.dislike_count > 0 && (
                     <div className="flex items-center gap-1 text-xs font-medium text-orange-500 bg-orange-50 px-2 py-1 rounded">
-                      <ThumbsDown className="w-3 h-3" /> {entry.votes.ok_count}
+                      <ThumbsDown className="w-3 h-3" /> {entry.votes.dislike_count}
                     </div>
                   )}
                   {entry.votes.veto_count > 0 && (
@@ -351,7 +355,7 @@ export default function LeaderboardPage() {
                     </div>
                   )}
                 </div>
-                
+
                 {entry.filter_matches > 0 && (
                   <p className="text-xs text-slate-400 mt-2">
                     Matches {entry.filter_matches} user filter{entry.filter_matches > 1 ? 's' : ''}

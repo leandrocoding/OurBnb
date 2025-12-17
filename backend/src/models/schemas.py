@@ -186,9 +186,9 @@ class VoteWithNextResponse(BaseModel):
 class LeaderboardVoteSummary(BaseModel):
     """Summary of votes for a listing"""
     veto_count: int = 0
-    ok_count: int = 0
-    love_count: int = 0
-    super_love_count: int = 0
+    dislike_count: int = 0
+    like_count: int = 0
+    super_like_count: int = 0
 
 
 class LeaderboardEntry(BaseModel):

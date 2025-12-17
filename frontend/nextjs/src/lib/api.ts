@@ -150,9 +150,9 @@ export interface VoteWithNextResponse {
 
 export interface LeaderboardVoteSummary {
   veto_count: number;
-  ok_count: number;
-  love_count: number;
-  super_love_count: number;
+  dislike_count: number;
+  like_count: number;
+  super_like_count: number;
 }
 
 export interface LeaderboardEntry {
