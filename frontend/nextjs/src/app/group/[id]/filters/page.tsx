@@ -162,7 +162,7 @@ export default function FiltersPage() {
         <div>
           <div className="flex justify-between mb-4">
             <h3 className="font-bold text-slate-900">Price Range</h3>
-            <span className="font-bold text-rose-500">${priceMin} - ${priceMax}</span>
+            <span className="font-bold text-rose-500">CHF {priceMin} - {priceMax}</span>
           </div>
 
           {/* rc-slider Range */}
@@ -253,7 +253,7 @@ export default function FiltersPage() {
               />
             </div>
           </div>
-          <p className="mt-2 text-sm text-slate-400 px-2">Per night</p>
+          <p className="mt-2 text-sm text-slate-400 px-2">Total price for stay</p>
         </div>
 
         {/* Room Type */}

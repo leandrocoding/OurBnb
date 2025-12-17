@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { motion, useMotionValue, useTransform, useAnimate, AnimatePresence } from 'framer-motion';
-import { Listing, VoteValue, VOTE_VETO, VOTE_OK, VOTE_SUPER_LOVE, OtherVote, voteNumberToType } from '../types';
+import { Listing, VoteValue, VOTE_VETO, VOTE_OK, VOTE_SUPER_LOVE, OtherVote } from '../types';
+import { PriceDisplayMode } from '../store/useAppStore';
 import { ThumbsDown, ThumbsUp, Star, ChevronLeft, ChevronRight, MapPin, ExternalLink, Ban, X } from 'lucide-react';
 
 // Preload a single image and return a promise
@@ -23,8 +24,6 @@ export function preloadImages(images: string[]): void {
     });
   });
 }
-
-export type PriceDisplayMode = 'total' | 'perNight' | 'perPerson';
 
 interface VotingCardProps {
   listing: Listing;

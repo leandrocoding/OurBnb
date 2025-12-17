@@ -37,8 +37,8 @@ export default function CreateGroupPage() {
   const router = useRouter();
   const setCurrentUser = useAppStore((state) => state.setCurrentUser);
   
-  const [groupName, setGroupName] = useState('Summer 2025');
-  const [destinations, setDestinations] = useState<string[]>(['Mallorca, ES']);
+  const [groupName, setGroupName] = useState('');
+  const [destinations, setDestinations] = useState<string[]>([]);
   const [newDestination, setNewDestination] = useState('');
   const [dateRange, setDateRange] = useState<DateRange>(getDefaultDateRange);
   const [userName, setUserName] = useState('');
@@ -237,7 +237,8 @@ export default function CreateGroupPage() {
             type="text"
             value={groupName}
             onChange={(e) => setGroupName(e.target.value)}
-            className="w-full rounded-xl border-0 bg-slate-50 p-4 text-slate-900 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-rose-500"
+            placeholder="Enter your Group Name"
+            className="w-full rounded-xl border-0 bg-slate-50 p-4 text-slate-900 ring-1 ring-inset ring-slate-200 placeholder:text-slate-400 focus:ring-2 focus:ring-inset focus:ring-rose-500"
           />
         </div>
 

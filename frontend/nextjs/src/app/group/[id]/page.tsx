@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useAppStore } from '../../../store/useAppStore';
-import { VotingCard, preloadImages, PriceDisplayMode } from '../../../components/VotingCard';
+import { VotingCard, preloadImages } from '../../../components/VotingCard';
 import { submitVote, getGroupInfo, GroupInfo, GroupVote, RecommendationListing } from '../../../lib/api';
 import { VoteValue, Listing, OtherVote } from '../../../types';
 import { Loader2, Search, Home } from 'lucide-react';
@@ -71,6 +71,8 @@ export default function GroupPage() {
     recommendationsVersion,
     fetchRecommendations,
     advanceToNextCard,
+    priceDisplayMode,
+    setPriceDisplayMode,
   } = useAppStore();
   
   const [groupInfo, setGroupInfo] = useState<GroupInfo | null>(null);
@@ -81,8 +83,6 @@ export default function GroupPage() {
   const [loadingMessageIndex, setLoadingMessageIndex] = useState(0);
   // Vote counter to force VotingCard re-mount after each vote (resets isAnimating state)
   const [voteCount, setVoteCount] = useState(0);
-  // Price display mode - persists across card changes
-  const [priceMode, setPriceMode] = useState<PriceDisplayMode>('total');
   
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
   const mountedRef = useRef(true);
@@ -394,7 +394,7 @@ export default function GroupPage() {
                 isBackground={true}
                 numberOfNights={groupInfo ? calculateNights(groupInfo.date_start, groupInfo.date_end) : 1}
                 numberOfAdults={groupInfo?.adults || 1}
-                priceMode={priceMode}
+                priceMode={priceDisplayMode}
               />
             </motion.div>
           )}
@@ -410,8 +410,8 @@ export default function GroupPage() {
             location={currentListingDisplay.location}
             numberOfNights={groupInfo ? calculateNights(groupInfo.date_start, groupInfo.date_end) : 1}
             numberOfAdults={groupInfo?.adults || 1}
-            priceMode={priceMode}
-            onPriceModeChange={setPriceMode}
+            priceMode={priceDisplayMode}
+            onPriceModeChange={setPriceDisplayMode}
           />
           
           {/* Loading indicator when fetching more */}

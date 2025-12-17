@@ -5,6 +5,8 @@ import { create } from 'zustand';
 import { Filters } from '../types';
 import { RecommendationListing, getRecommendations } from '../lib/api';
 
+export type PriceDisplayMode = 'total' | 'perNight' | 'perPerson';
+
 export interface StoredUser {
   id: number;
   groupId: number;
@@ -23,6 +25,9 @@ interface AppState {
   // Local filters state (for the filters page before saving to backend)
   filters: Filters;
   
+  // Price display mode (persisted to localStorage)
+  priceDisplayMode: PriceDisplayMode;
+  
   // Hydration state - true once localStorage has been loaded
   isHydrated: boolean;
   
@@ -39,6 +44,7 @@ interface AppState {
   // Actions
   setCurrentUser: (user: StoredUser | null) => void;
   setFilters: (filters: Filters) => void;
+  setPriceDisplayMode: (mode: PriceDisplayMode) => void;
   clearUser: () => void;
   hydrate: () => void;
   
@@ -51,8 +57,14 @@ interface AppState {
 
 const STORAGE_KEY = 'airbnb-group-storage';
 
+interface StoredState {
+  currentUser: StoredUser | null;
+  filters: Filters;
+  priceDisplayMode?: PriceDisplayMode;
+}
+
 // Manual persistence helper
-const getStoredState = (): { currentUser: StoredUser | null; filters: Filters } | null => {
+const getStoredState = (): StoredState | null => {
   if (typeof window === 'undefined') return null;
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -65,10 +77,10 @@ const getStoredState = (): { currentUser: StoredUser | null; filters: Filters } 
   return null;
 };
 
-const saveState = (currentUser: StoredUser | null, filters: Filters) => {
+const saveState = (currentUser: StoredUser | null, filters: Filters, priceDisplayMode: PriceDisplayMode) => {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ currentUser, filters }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ currentUser, filters, priceDisplayMode }));
   } catch {
     // Ignore storage errors
   }
@@ -82,6 +94,7 @@ export const useAppStore = create<AppState>()((set: SetState, get: GetState) => 
   filters: {
     amenities: [],
   },
+  priceDisplayMode: 'total',
   isHydrated: false,
   
   // Recommendations initial state
@@ -95,19 +108,24 @@ export const useAppStore = create<AppState>()((set: SetState, get: GetState) => 
 
   setCurrentUser: (user: StoredUser | null) => {
     set({ currentUser: user });
-    saveState(user, get().filters);
+    saveState(user, get().filters, get().priceDisplayMode);
   },
   
   setFilters: (filters: Filters) => {
     set({ filters });
-    saveState(get().currentUser, filters);
+    saveState(get().currentUser, filters, get().priceDisplayMode);
     // Invalidate recommendations when filters change
     get().invalidateRecommendations();
   },
   
+  setPriceDisplayMode: (mode: PriceDisplayMode) => {
+    set({ priceDisplayMode: mode });
+    saveState(get().currentUser, get().filters, mode);
+  },
+  
   clearUser: () => {
     set({ currentUser: null });
-    saveState(null, get().filters);
+    saveState(null, get().filters, get().priceDisplayMode);
     // Clear recommendations when user logs out
     get().clearRecommendations();
   },
@@ -118,6 +136,7 @@ export const useAppStore = create<AppState>()((set: SetState, get: GetState) => 
       set({ 
         currentUser: stored.currentUser, 
         filters: stored.filters || { amenities: [] },
+        priceDisplayMode: stored.priceDisplayMode || 'total',
         isHydrated: true,
       });
     } else {

@@ -2,14 +2,50 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams } from 'next/navigation';
-import { useAppStore } from '../../../../store/useAppStore';
-import { getLeaderboard, getLeaderboardWebSocketUrl, LeaderboardEntry, LeaderboardResponse } from '../../../../lib/api';
+import { useAppStore, PriceDisplayMode } from '../../../../store/useAppStore';
+import { getLeaderboard, getLeaderboardWebSocketUrl, LeaderboardEntry, LeaderboardResponse, getGroupInfo, GroupInfo } from '../../../../lib/api';
 import Link from 'next/link';
 import { Trophy, ThumbsUp, ThumbsDown, Ban, AlertCircle, Loader2, Users, RefreshCw, ExternalLink, MapPin } from 'lucide-react';
 
+// Calculate number of nights between two dates
+function calculateNights(dateStart: string, dateEnd: string): number {
+  const start = new Date(dateStart);
+  const end = new Date(dateEnd);
+  const diffTime = Math.abs(end.getTime() - start.getTime());
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return Math.max(1, diffDays);
+}
+
+// Format price based on display mode
+function formatPriceForMode(
+  totalPrice: number, 
+  mode: PriceDisplayMode, 
+  numberOfNights: number, 
+  numberOfAdults: number
+): { price: string; label: string } {
+  const formatter = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'CHF',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
+
+  const pricePerNight = totalPrice / Math.max(1, numberOfNights);
+  const pricePerPerson = pricePerNight / Math.max(1, numberOfAdults);
+
+  switch (mode) {
+    case 'total':
+      return { price: formatter.format(totalPrice), label: 'total' };
+    case 'perNight':
+      return { price: formatter.format(pricePerNight), label: '/night' };
+    case 'perPerson':
+      return { price: formatter.format(pricePerPerson), label: '/night/person' };
+  }
+}
+
 export default function LeaderboardPage() {
   const { id } = useParams();
-  const { currentUser, isHydrated } = useAppStore();
+  const { currentUser, isHydrated, priceDisplayMode } = useAppStore();
   
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [totalListings, setTotalListings] = useState(0);
@@ -17,12 +53,30 @@ export default function LeaderboardPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
+  const [groupInfo, setGroupInfo] = useState<GroupInfo | null>(null);
   
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const mountedRef = useRef(true);
 
   const groupId = typeof id === 'string' ? parseInt(id, 10) : null;
+  
+  // Calculate price display values
+  const numberOfNights = groupInfo ? calculateNights(groupInfo.date_start, groupInfo.date_end) : 1;
+  const numberOfAdults = groupInfo?.adults || 1;
+
+  // Fetch group info for price calculations
+  const fetchGroupInfo = useCallback(async () => {
+    if (!groupId || !mountedRef.current) return;
+    try {
+      const info = await getGroupInfo(groupId);
+      if (mountedRef.current) {
+        setGroupInfo(info);
+      }
+    } catch {
+      // Silently fail - we'll just use defaults for price display
+    }
+  }, [groupId]);
 
   // Fetch leaderboard via REST API (fallback)
   const fetchLeaderboard = useCallback(async () => {
@@ -129,6 +183,9 @@ export default function LeaderboardPage() {
   useEffect(() => {
     mountedRef.current = true;
     
+    // Fetch group info for price calculations
+    fetchGroupInfo();
+    
     // First fetch via REST for immediate data
     fetchLeaderboard();
     
@@ -148,7 +205,7 @@ export default function LeaderboardPage() {
         reconnectTimeoutRef.current = null;
       }
     };
-  }, [fetchLeaderboard, connectWebSocket]);
+  }, [fetchLeaderboard, connectWebSocket, fetchGroupInfo]);
 
   // Manual refresh
   const handleRefresh = () => {
@@ -262,7 +319,10 @@ export default function LeaderboardPage() {
                 </div>
                 
                 <div className="flex items-center gap-2 text-slate-600 text-sm mb-2">
-                  <span>CHF {entry.price} / night</span>
+                  {(() => {
+                    const priceInfo = formatPriceForMode(entry.price, priceDisplayMode, numberOfNights, numberOfAdults);
+                    return <span>{priceInfo.price} <span className="text-slate-400">{priceInfo.label}</span></span>;
+                  })()}
                   {entry.location && (
                     <>
                       <span className="text-slate-300">•</span>
