@@ -62,6 +62,7 @@ def build_airbnb_url(location,  adults, children, infants, pets, checkin, checko
         "children" : children,
         "infants" : infants,
         "pets" : pets,
+        "locale": "en",
         "search_type": "search_query",
         "query": sanitized_location,
         # "pagination_search": "true", # Only needed for page 2+
@@ -247,11 +248,11 @@ def find_price_range_for_search(location, adults, children, infants, pets, check
     url_path, params = build_airbnb_url(location, adults, children, infants, pets, checkin, checkout, price_min=min_price, price_max=max_price, amenities=amenities, room_type=None, min_bedrooms=min_bedrooms, min_beds=min_beds, min_bathrooms=min_bathrooms)
 
     headers = get_search_headers()
-    
+
     # Get proxy for this request (may be None for direct connection)
     proxy_manager = get_proxy_manager()
     proxy = proxy_manager.get_healthy_proxy(strategy="random")
-    
+
     try:
         response = requests.get(url_path, params=params, headers=headers, proxies=proxy, timeout=30)
         print(response.url)
@@ -271,7 +272,7 @@ def find_price_range_for_search(location, adults, children, infants, pets, check
         else:
             print(f"Request error (no proxy): {e}")
             return (0, 25000)
-    
+
     try:
         soup = BeautifulSoup(response.text, 'html.parser')
 
@@ -319,10 +320,10 @@ def search_airbnb(location, adults, children, infants, pets, checkin, checkout, 
 
     total_listing_count = 0
     current_cursor = None
-    
+
     # Get proxy manager for rotating proxies
     proxy_manager = get_proxy_manager()
-    
+
     # Headers and proxie should be random but should be consistent between pages.
         # Get proxy for this request (may be None for direct connection)
     proxy = proxy_manager.get_healthy_proxy(strategy="random")
@@ -333,7 +334,7 @@ def search_airbnb(location, adults, children, infants, pets, checkin, checkout, 
 
     for page in range(1, max_pages + 1):
         print(f"--- Scraping Page {page} ---")
-        
+
 
         # Prepare params for pagination
         current_params = params.copy()
@@ -341,7 +342,7 @@ def search_airbnb(location, adults, children, infants, pets, checkin, checkout, 
             current_params['pagination_search'] = 'true'
             current_params['cursor'] = current_cursor
 
-        
+
         try:
             response = requests.get(url_path, params=current_params, headers=headers, proxies=proxy, timeout=30)
             response.raise_for_status()
