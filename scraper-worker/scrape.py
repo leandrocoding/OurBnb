@@ -219,7 +219,7 @@ def parse_airbnb_response(html_content):
         price_int = 0
         if price_text and price_text != 'N/A':
             try:
-                clean_price = price_text.replace("’", "").replace("CHF", "").strip()
+                clean_price = price_text.replace(",", "").replace("CHF", "").strip()
                 price_int = int(clean_price)
             except (ValueError, AttributeError):
                 price_int = 0
