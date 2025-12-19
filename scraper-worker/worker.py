@@ -2,6 +2,7 @@ import os
 import json
 import time
 import re
+import logging
 from random import randint
 from typing import Dict, Any
 from headers import get_random_delay
@@ -20,6 +21,8 @@ from db import (
 )
 from proxy import get_proxy_manager
 
+logger = logging.getLogger(__name__)
+
 # Redis configuration from environment
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = os.getenv("REDIS_PORT", "6379")
@@ -30,9 +33,9 @@ app = Celery("airbnb_workers", broker=REDIS_URL)
 # Initialize proxy manager and log status
 proxy_manager = get_proxy_manager()
 if proxy_manager.has_proxies:
-    print(f"Proxy support enabled with {proxy_manager.proxy_count} proxies")
+    logger.info(f"Proxy support enabled with {proxy_manager.proxy_count} proxies")
 else:
-    print("No proxies configured, using direct connection")
+    logger.info("No proxies configured, using direct connection")
 
 
 def parse_rating(rating_str: str) -> tuple:
@@ -57,7 +60,7 @@ def import_listings(result_json : str, user_id, user_filter, group_id, destinati
     try:
         listings = json.loads(result_json)
     except json.JSONDecodeError:
-        print("Failed to parse search results")
+        logger.warning("Failed to parse search results")
         return 0
     
     bnbs_inserted = 0
@@ -98,7 +101,7 @@ def import_listings(result_json : str, user_id, user_filter, group_id, destinati
             
             bnbs_inserted += 1
         except Exception as e:
-            print(f"Failed to insert bnb {listing.get('id')}: {e}")
+            logger.warning(f"Failed to insert bnb {listing.get('id')}: {e}")
     
     return bnbs_inserted
 
@@ -120,7 +123,7 @@ def search_worker(args: Dict[str, Any]):
     bnbs_inserted = 0
     
     if not user_id or not destination_id:
-        print("Missing required data: user_id or destination_id")
+        logger.error("Missing required data: user_id or destination_id")
         return "Failed: missing user_id or destination_id"
     
     # Get filter from database
@@ -130,7 +133,7 @@ def search_worker(args: Dict[str, Any]):
     # Get destination info from database (includes group_id)
     destination = get_destination(destination_id)
     if not destination:
-        print(f"Destination {destination_id} not found")
+        logger.error(f"Destination {destination_id} not found")
         return "Failed: destination not found"
     
     location = destination.get("location_name")
@@ -146,11 +149,11 @@ def search_worker(args: Dict[str, Any]):
     checkout = str(destination.get("date_range_end"))
     
     if not (location and guests and checkin and checkout):
-        print(f"Missing required destination data: {destination}")
+        logger.error(f"Missing required destination data: {destination}")
         return "Failed: incomplete destination data"
     
     if not group_id:
-        print(f"No group_id for destination {destination_id}")
+        logger.error(f"No group_id for destination {destination_id}")
         return "Failed: no group_id"
     
     # Map room_type string to enum if present
@@ -162,7 +165,7 @@ def search_worker(args: Dict[str, Any]):
         elif property_type == "Private room":
             room_type = RoomType.PRIVATE_ROOM
     
-    print(f"Scraping search for {location} with filter: {user_filter}")
+    logger.info(f"Scraping search for {location} with filter: {user_filter}")
     
     # Initialize filter request tracking
     max_pages = page_end - page_start + 1
@@ -191,7 +194,7 @@ def search_worker(args: Dict[str, Any]):
     update_filter_request_progress(user_id, destination_id, max_pages)
     
     
-    print(f"Done: Inserted {bnbs_inserted} bnbs for destination {location}")
+    logger.info(f"Done: Inserted {bnbs_inserted} bnbs for destination {location}")
     time.sleep(get_random_delay(1, 4))
     return f"Done: inserted {bnbs_inserted} bnbs"
 
@@ -199,7 +202,7 @@ def search_worker(args: Dict[str, Any]):
 
 @app.task(name='scraper.listing_job')
 def listing_worker(room_id):
-    print(f"Scraping listing {room_id}")
+    logger.info(f"Scraping listing {room_id}")
     get_listing_data(room_id)
     time.sleep(get_random_delay(1, 4))
     

@@ -41,13 +41,9 @@ Backend API: http://localhost/api
 Microservice: http://localhost:8081  
 Microservice Docs: http://localhost:8081/v1/docs
 
-## Deployment
+## Live Demo
 
-Push to GitLab to trigger automatic deployment via CI/CD. The app deploys to:
-- Frontend/Backend: `https://group-p11.webdev-25.ivia.isginf.ch/`
-- Microservice: `https://api.group-p11.webdev-25.ivia.isginf.ch/`
-
-It is currently also hosted on https://ourbnb.ch 
+https://ourbnb.ch
 ## Project Structure
 
 ```

@@ -1,6 +1,9 @@
 import os
+import logging
 from celery import Celery
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 # Redis configuration from environment
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
@@ -45,7 +48,7 @@ def trigger_search_for_user_destinations(user_id: int, page_count: int = 4) -> l
         )
         job_ids.append(job_id)
     
-    print(f"Triggered {len(job_ids)} search jobs for user {user_id}")
+    logger.info(f"Triggered {len(job_ids)} search jobs for user {user_id}")
     return job_ids
 
 
@@ -78,7 +81,7 @@ def trigger_search_job(
         "page_end": page_end,
     }
     
-    print(f"Sending {search_task_name} with args: {job_args}")
+    logger.debug(f"Sending {search_task_name} with args: {job_args}")
     
     result = scraper_queue.send_task(
         search_task_name,
@@ -86,7 +89,7 @@ def trigger_search_job(
         queue="high_priority" if high_prio else "default"
     )
     
-    print(f"Job dispatched. ID: {result.id}")
+    logger.debug(f"Job dispatched. ID: {result.id}")
     return result.id
 
 
@@ -103,7 +106,7 @@ def trigger_listing_inquiry(listing_id: str, high_prio: bool = False) -> str:
     """
     listing_task_name = 'scraper.listing_job'
     
-    print(f"Sending {listing_task_name} for listing {listing_id}")
+    logger.debug(f"Sending {listing_task_name} for listing {listing_id}")
     
     result = scraper_queue.send_task(
         listing_task_name,
@@ -111,7 +114,7 @@ def trigger_listing_inquiry(listing_id: str, high_prio: bool = False) -> str:
         queue="high_priority" if high_prio else "default"
     )
     
-    print(f"Job dispatched. ID: {result.id}")
+    logger.debug(f"Job dispatched. ID: {result.id}")
     return result.id
 
 

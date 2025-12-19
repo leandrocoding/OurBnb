@@ -3,6 +3,7 @@ Group management routes: create, info, join, and demo endpoints.
 """
 
 import os
+import logging
 import httpx
 
 from fastapi import APIRouter, HTTPException
@@ -20,6 +21,8 @@ from models.schemas import (
     DemoAllGroupsResponse,
 )
 from db import get_cursor
+
+logger = logging.getLogger(__name__)
 
 # Microservice URL for price range lookups
 MICROSERVICE_URL = os.getenv("MICROSERVICE_URL", "http://microservice:8081")
@@ -96,11 +99,11 @@ async def create_group(request: CreateGroupRequest):
                     if overall_max is None or max_price > overall_max:
                         overall_max = max_price
                     
-                    print(f"Price range for {location_name}: {min_price}-{max_price}")
+                    logger.debug(f"Price range for {location_name}: {min_price}-{max_price}")
                 else:
-                    print(f"Failed to get price range for {location_name}: {response.status_code}")
+                    logger.warning(f"Failed to get price range for {location_name}: {response.status_code}")
             except Exception as e:
-                print(f"Error fetching price range for {location_name}: {e}")
+                logger.warning(f"Error fetching price range for {location_name}: {e}")
     
     # Update group with overall price range
     if overall_min is not None and overall_max is not None:
@@ -113,7 +116,7 @@ async def create_group(request: CreateGroupRequest):
                 """,
                 (overall_min, overall_max, group_id)
             )
-        print(f"Group {group_id} overall price range: {overall_min}-{overall_max}")
+        logger.info(f"Group {group_id} overall price range: {overall_min}-{overall_max}")
     
     return CreateGroupResponse(group_id=group_id)
 

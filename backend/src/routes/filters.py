@@ -56,9 +56,7 @@ async def get_filter(u_id: int):
                 amenities=amenities,
             )
         
-        # Return default filter if none exists
-        # TODO adjust max_price based on what airbnb has as max. Currently using 25000 (per night)
-        
+        # Return default filter values if none exists (max 25000/night)
         return FilterResponse(user_id=u_id)
 
 

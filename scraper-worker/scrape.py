@@ -40,8 +40,7 @@ class RoomType(Enum):
 def build_airbnb_url(location,  adults, children, infants, pets, checkin, checkout, price_min=None, price_max=None, amenities=None, room_type=None, min_bedrooms=None, min_beds=None, min_bathrooms=None):
     base_url = "https://www.airbnb.ch/s"
     url_path = f"{base_url}/homes"
-    # TODO: Fix üöä etc. Currently not working e.g. Zürich
-    # TODO: This is a bad fix that might work for now.
+    # Handle special characters for URL compatibility
 
     replacements = {
         'ä': 'a', 'Ä': 'A',
@@ -212,8 +211,7 @@ def parse_airbnb_response(html_content):
         if(price_text == 'N/A'):
             price_text=price_obj.get('discountedPrice', 'N/A')
         if(price_text == 'N/A'):
-            print("\n couldn't find price object, see json \n")
-            print(result)
+            logger.warning("Couldn't find price object in listing result")
         price_accessibility = price_obj.get('accessibilityLabel', '')
 
         price_int = 0
@@ -255,22 +253,22 @@ def find_price_range_for_search(location, adults, children, infants, pets, check
 
     try:
         response = requests.get(url_path, params=params, headers=headers, proxies=proxy, timeout=30)
-        print(response.url)
+        logger.debug(f"Request URL: {response.url}")
         response.raise_for_status()
     except (requests.exceptions.ProxyError, requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as e:
         # Proxy failed - mark it and retry with direct connection
         if proxy:
-            print(f"Proxy failed for price range request: {e}. Marking proxy as failed and retrying with direct connection.")
+            logger.warning(f"Proxy failed for price range request: {e}. Retrying with direct connection.")
             proxy_manager.mark_failed(proxy)
             try:
                 response = requests.get(url_path, params=params, headers=headers, proxies=None, timeout=30)
-                print(response.url)
+                logger.debug(f"Request URL: {response.url}")
                 response.raise_for_status()
             except Exception as retry_e:
-                print(f"Retry with direct connection also failed: {retry_e}")
+                logger.error(f"Retry with direct connection also failed: {retry_e}")
                 return (0, 25000)
         else:
-            print(f"Request error (no proxy): {e}")
+            logger.error(f"Request error (no proxy): {e}")
             return (0, 25000)
 
     try:
@@ -284,7 +282,7 @@ def find_price_range_for_search(location, adults, children, infants, pets, check
         try:
             data = json.loads(script_tag.text)
         except json.JSONDecodeError:
-            print("Failed to decode JSON data for price range.")
+            logger.warning("Failed to decode JSON data for price range.")
             return (0, 25000)
 
         # Navigate to the price filter: niobeClientData[0][1].data.presentation.staysSearch.results.filters.filterPanel.filterPanelSections.sections[0].sectionData.discreteFilterItems[0]
@@ -308,13 +306,13 @@ def find_price_range_for_search(location, adults, children, infants, pets, check
                             max_val = item.get('maxValue', 25000)
                             return (min_val, max_val)
         except (KeyError, IndexError, TypeError) as e:
-            print(f"Error extracting price range: {e}")
+            logger.debug(f"Error extracting price range: {e}")
             return (0, 25000)
     except Exception as e:
-        print(f"Request error: {e}")
+        logger.error(f"Request error: {e}")
         return (0, 25000)
     return (0, 25000)
-# TODO add support for additional search params
+
 def search_airbnb(location, adults, children, infants, pets, checkin, checkout, import_function : Callable[[str],int], min_price=None, max_price=None, amenities=None, room_type=None, min_bedrooms=None, min_beds=None, min_bathrooms=None, max_pages=2):
     url_path, params = build_airbnb_url(location, adults, children, infants, pets, checkin, checkout, price_min=min_price, price_max=max_price, amenities=amenities, room_type=room_type, min_bedrooms=min_bedrooms, min_beds=min_beds, min_bathrooms=min_bathrooms)
 
@@ -333,7 +331,7 @@ def search_airbnb(location, adults, children, infants, pets, checkin, checkout, 
 
 
     for page in range(1, max_pages + 1):
-        print(f"--- Scraping Page {page} ---")
+        logger.info(f"Scraping page {page}/{max_pages}")
 
 
         # Prepare params for pagination
@@ -349,35 +347,32 @@ def search_airbnb(location, adults, children, infants, pets, checkin, checkout, 
         except (requests.exceptions.ProxyError, requests.exceptions.ConnectTimeout, requests.exceptions.ConnectionError) as e:
             # Proxy failed - mark it and retry with direct connection
             if proxy:
-                print(f"Proxy failed on page {page}: {e}. Marking proxy as failed and retrying with direct connection.")
+                logger.warning(f"Proxy failed on page {page}: {e}. Retrying with direct connection.")
                 proxy_manager.mark_failed(proxy)
-                # Don't reuse failed proxy for following pages.
                 proxy = None
                 try:
                     response = requests.get(url_path, params=current_params, headers=headers, proxies=None, timeout=30)
                     response.raise_for_status()
                 except requests.exceptions.RequestException as retry_e:
-                    print(f"Retry with direct connection also failed on page {page}: {retry_e}")
+                    logger.error(f"Retry with direct connection also failed on page {page}: {retry_e}")
                     break
             else:
-                print(f"Request error on page {page} (no proxy): {e}")
+                logger.error(f"Request error on page {page} (no proxy): {e}")
                 break
         except requests.exceptions.RequestException as e:
-            print(f"Request error on page {page}: {e}")
+            logger.error(f"Request error on page {page}: {e}")
             break
 
         listings, next_cursor = parse_airbnb_response(response.text)
 
         if isinstance(listings, dict) and "error" in listings:
-            print(f"Error on page {page}: {listings['error']}")
+            logger.error(f"Error on page {page}: {listings['error']}")
             break
         total_listing_count += import_function(json.dumps(listings, indent=4, ensure_ascii=False))
-        # all_listings.extend(listings)
-        print(f"Found {len(listings)} listings on page {page}.")
+        logger.info(f"Found {len(listings)} listings on page {page}")
 
-        # Logic to stop or continue
         if not next_cursor:
-            print("No more pages available.")
+            logger.debug("No more pages available")
             break
 
         current_cursor = next_cursor
